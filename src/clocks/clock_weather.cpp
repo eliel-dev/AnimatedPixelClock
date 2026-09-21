@@ -28,6 +28,61 @@ static void drawCloudShape(int cx, int cy, uint16_t color) {
   display.fillRect(cx - 6, cy + 2, 13, 4, color);
 }
 
+static void drawTwinklingNightStars(int weatherCode) {
+  if (weatherCode > 3) return;
+
+  struct NightStar {
+    uint8_t x;
+    uint8_t y;
+    unsigned long changeAt;
+    bool visible;
+  };
+  static NightStar stars[9];
+  static bool initialized = false;
+  const uint16_t dim = 0x4208;
+  const uint16_t mid = 0x8410;
+  const uint16_t bright = SPRITE_COLOR(COL_WEATHER_ACCENT);
+
+  unsigned long now = millis();
+  if (!initialized) {
+    for (NightStar& star : stars) {
+      star.x = random(3, 126);
+      star.y = random(14, 53);
+      star.visible = false;
+      star.changeAt = now + random(0, 1600);
+    }
+    initialized = true;
+  }
+
+  for (uint8_t i = 0; i < 9; ++i) {
+    NightStar& star = stars[i];
+    if ((long)(now - star.changeAt) >= 0) {
+      star.visible = !star.visible;
+      if (star.visible) {
+        // A new position is chosen only when the star returns.
+        star.x = random(3, 126);
+        star.y = random(14, 53);
+        star.changeAt = now + random(3500, 7500);
+      } else {
+        star.changeAt = now + random(2500, 6000);
+      }
+    }
+    if (!star.visible) continue;
+
+    // Each star has its own slow pulse while it is alive.
+    unsigned long life = star.changeAt - now;
+    float glow = 0.35f + 0.65f * (sinf((life % 5000UL) * 0.00126f) + 1.0f) * 0.5f;
+    display.drawPixel(star.x, star.y,
+                      glow > 0.72f ? bright : (glow > 0.48f ? mid : dim));
+    if (glow > 0.9f && (i % 3 == 0)) {
+      display.drawPixel(star.x - 1, star.y, mid);
+      display.drawPixel(star.x + 1, star.y, mid);
+      display.drawPixel(star.x, star.y - 1, mid);
+      display.drawPixel(star.x, star.y + 1, mid);
+    }
+  }
+}
+
 static void drawWeatherIcon(int x, int y, WeatherIconKind kind) {
   uint16_t body = SPRITE_COLOR(COL_WEATHER_ICON);
   uint16_t accent = SPRITE_COLOR(COL_WEATHER_ACCENT);
@@ -49,6 +104,14 @@ static void drawWeatherIcon(int x, int y, WeatherIconKind kind) {
         int y1 = cy + (int)(sinf(a) * len);
         display.drawLine(x0, y0, x1, y1, body);
       }
+      break;
+    }
+    case WICON_MOON: {
+      // Crescent for clear nights, based on Open-Meteo's current.is_day.
+      display.fillCircle(cx, cy, 7, body);
+      display.fillCircle(cx + 4, cy - 3, 7, DISPLAY_BLACK);
+      display.drawPixel(cx - 2, cy - 9, accent);
+      display.drawPixel(cx + 5, cy + 7, accent);
       break;
     }
     case WICON_PARTCLOUD: {
@@ -157,7 +220,7 @@ void displayClockWithWeather() {
   } else {
     display.setTextSize(1);
     display.setCursor(20, WTIME_Y + 4);
-    display.print(!ntpSynced ? "Syncing time..." : "Time Error");
+    display.print(!ntpSynced ? "Sincronizando..." : "Erro de hora");
   }
 
   // --- Weather block ---
@@ -166,18 +229,20 @@ void displayClockWithWeather() {
 
   if (!settings.weatherEnabled || !weatherConfigured()) {
     display.setCursor(22, 34);
-    display.print("Weather not set up");
+    display.print("Clima nao configurado");
     display.setCursor(13, 46);
-    display.print("Enable it in the web UI");
+    display.print("Ative na interface web");
     return;
   }
   if (!wx.valid) {
     display.setCursor(28, 38);
-    display.print("Fetching weather...");
+    display.print("Buscando clima...");
     return;
   }
 
-  drawWeatherIcon(WICON_X, WICON_Y, weatherIconFromCode(wx.weatherCode));
+  if (!wx.isDay) drawTwinklingNightStars(wx.weatherCode);
+  drawWeatherIcon(WICON_X, WICON_Y,
+                  weatherIconFromCode(wx.weatherCode, wx.isDay));
   drawTemperature(52, WICON_Y + 3, wx.tempC);
 
   // --- Details row: min/max + humidity alternating with sun times ---

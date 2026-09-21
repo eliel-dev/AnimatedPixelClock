@@ -316,17 +316,17 @@ def apply_connection(core, state, form):
         start_delay = float(f("audio_viz_start_delay", audio_spectrum.AUTO_START_DELAY))
         stop_delay = float(f("audio_viz_stop_delay", audio_spectrum.AUTO_STOP_DELAY))
         if not ip:
-            raise ValueError("Device IP cannot be empty.")
+            raise ValueError("O IP do dispositivo não pode ficar vazio.")
         if port < 1 or port > 65535:
-            raise ValueError("Port must be 1-65535.")
+            raise ValueError("A porta deve ser entre 1 e 65535.")
         if interval < 0.5:
-            raise ValueError("Update interval must be at least 0.5 seconds.")
+            raise ValueError("O intervalo de atualização deve ser de pelo menos 0,5 segundos.")
         if not -80.0 <= threshold <= -10.0:
-            raise ValueError("Sound threshold must be -80 to -10 dB.")
+            raise ValueError("O limite de som deve ser entre -80 e -10 dB.")
         if not 0.0 <= start_delay <= 60.0:
-            raise ValueError("Start delay must be 0-60 seconds.")
+            raise ValueError("O atraso de início deve ser entre 0 e 60 segundos.")
         if not 1.0 <= stop_delay <= 3600.0:
-            raise ValueError("Stop delay must be 1-3600 seconds.")
+            raise ValueError("O atraso de parada deve ser entre 1 e 3600 segundos.")
     except ValueError as e:
         return {"success": False, "message": str(e)}
     config = state.get_config()
@@ -376,7 +376,7 @@ def do_test(core, state, form):
     except ValueError:
         port = 4210
     if not ip:
-        return {"reachable": False, "message": "Enter the device IP first."}
+        return {"reachable": False, "message": "Informe o IP do dispositivo primeiro."}
     reachable, detail = device_reachable(ip, timeout=2)
     try:
         us = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -386,8 +386,8 @@ def do_test(core, state, form):
         pass
     state.set_reachable(reachable)
     if reachable:
-        return {"reachable": True, "message": "Reachable at %s (the device answered; UDP probe sent to %d)." % (ip, port)}
-    return {"reachable": False, "message": "Could not reach %s on port 80. %s Check power, network/subnet, and the IP." % (ip, detail)}
+        return {"reachable": True, "message": "Acessível em %s (o dispositivo respondeu; teste UDP enviado para %d)." % (ip, port)}
+    return {"reachable": False, "message": "Não foi possível acessar %s na porta 80. %s Verifique a alimentação, rede/sub-rede e o IP." % (ip, detail)}
 
 
 def apply_revert(core, state):
@@ -406,11 +406,11 @@ def apply_pull(core, state):
     config = state.get_config()
     ip = config.get("esp32_ip", "")
     if not ip:
-        return {"success": False, "message": "Set the device IP on the Connection page first."}
+        return {"success": False, "message": "Defina o IP do dispositivo na aba Conexão primeiro."}
     try:
         data = fetch_device_export(ip, timeout=4)
     except Exception as e:
-        return {"success": False, "message": "Could not reach the device at %s (%s)." % (ip, e)}
+        return {"success": False, "message": "Não foi possível conectar ao dispositivo em %s (%s)." % (ip, e)}
     parsed = parse_device_layout(data, _layout_input(config))
     config["layout"] = {
         "row_mode": parsed["row_mode"], "layout": parsed["layout"], "source": "device",
@@ -419,7 +419,7 @@ def apply_pull(core, state):
     }
     core.save_config(config)
     state.set_config(config)
-    return {"success": True, "message": "Pulled the current layout from the device."}
+    return {"success": True, "message": "Layout atual obtido do dispositivo com sucesso."}
 
 
 def apply_template(core, state, key):
@@ -429,7 +429,7 @@ def apply_template(core, state, key):
     config = state.get_config()
     metrics = _layout_input(config)
     if not metrics:
-        return {"success": False, "message": "Select some sensors first."}
+        return {"success": False, "message": "Selecione alguns sensores primeiro."}
     if key not in ("compact", "bars", "big", "everything"):
         key = "compact"
     row_mode, layout, _hidden = auto_layout(metrics, key)
@@ -441,12 +441,12 @@ def apply_template(core, state, key):
     }
     core.save_config(config)
     state.set_config(config)
-    return {"success": True, "message": "Applied the '%s' template - review, then Save & push." % key}
+    return {"success": True, "message": "Modelo '%s' aplicado - revise e clique em Salvar e enviar." % key}
 
 
 def apply_import(core, state, cfg):
     if not isinstance(cfg, dict) or "metrics" not in cfg:
-        return {"success": False, "message": "Not a PC Monitor configuration (no metrics)."}
+        return {"success": False, "message": "Não é uma configuração válida do PC Monitor (sem métricas)."}
     config = state.get_config()
     out = {
         "version": "4.0",
@@ -473,7 +473,7 @@ def apply_import(core, state, cfg):
     core.save_config(out)
     state.set_config(out)
     audio_spectrum.ensure(out)
-    return {"success": True, "message": "Configuration imported."}
+    return {"success": True, "message": "Configuração importada com sucesso."}
 
 
 # ---------------------------------------------------------------------------

@@ -262,9 +262,9 @@ void displayStandardClock() {
     display.setTextSize(1);
     display.setCursor(20, 28);
     if (!ntpSynced) {
-      display.print("Syncing time...");
+      display.print("Sincronizando...");
     } else {
-      display.print("Time Error");
+      display.print("Erro de hora");
     }
     return;
   }
@@ -318,7 +318,7 @@ void displayStandardClock() {
   display.print(dateStr);
 
   // Day of week
-  const char* days[] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
+  const char* days[] = {"Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sab"};
   const char* dayName = days[timeinfo.tm_wday];
   int day_width = strlen(dayName) * 6;
   int day_x = (SCREEN_WIDTH - day_width) / 2;
@@ -338,9 +338,9 @@ void displayLargeClock() {
     display.setTextSize(1);
     display.setCursor(20, 28);
     if (!ntpSynced) {
-      display.print("Syncing time...");
+      display.print("Sincronizando...");
     } else {
-      display.print("Time Error");
+      display.print("Erro de hora");
     }
     return;
   }

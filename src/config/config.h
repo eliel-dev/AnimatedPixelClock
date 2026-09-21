@@ -35,11 +35,11 @@ static inline uint8_t normalizeAmbientStyle(int s) {
 #define SCOPE_GAIN_MAX 200
 #define SCOPE_GAIN_DEFAULT 100
 
-// Visualizer slots in use: 0,1,2,3,5,6. Slot 4 held a dropped effect; map it
+// Visualizer slots in use: 0,1,2,3,5,6,7,8. Slot 4 held a dropped effect; map it
 // and any out-of-range value to 0 (Classic EQ) so a device that still has it
 // saved lands on a real style.
 static inline uint8_t normalizeVizStyle(int s) {
-  return (s == 4 || s < 0 || s > 6) ? 0 : (uint8_t)s;
+  return (s == 4 || s < 0 || s > 8) ? 0 : (uint8_t)s;
 }
 
 // ========== Metric Structures ==========
@@ -232,9 +232,7 @@ struct Settings {
   uint8_t matrixRainSpeed;      // Rain fall speed, tenths (12 = 1.2)
   uint8_t matrixRainDensity;    // 0=Sparse, 1=Normal, 2=Dense
   bool matrixShowDate;          // Show date row (off = centred clock)
-  bool matrixTransparent;       // No mask behind digits, rain falls through (default: true)
-  bool matrixSmoothScroll;      // Leading character falls a pixel at a time, not a row at a time
-  bool matrixSmallClock;        // Small clock in the top-right corner instead of the big centred one
+  bool matrixTransparent;       // No mask behind digits, rain falls through (default: false)
 
   // Doom Fire clock settings
   uint8_t doomFlameHeight;      // Digit plume reach above the digits, pixels (8-40)

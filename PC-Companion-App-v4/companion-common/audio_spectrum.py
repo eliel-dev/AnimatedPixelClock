@@ -1,9 +1,10 @@
 """Audio spectrum streamer for the display's visualizer mode.
 
 Captures what the PC is playing (WASAPI loopback on Windows, PulseAudio
-monitor on Linux - both via the `soundcard` package), reduces each ~40ms
-block to 32 log-spaced frequency bands, and sends them to the device as a
-tiny binary UDP packet: b"FFT1" + 32 amplitude bytes + 128 waveform bytes,
+monitor on Linux - both via the `soundcard` package), runs Mica Audio's
+AudioMotion mode-0 analyser in 256-sample hops, and resamples its display
+bands to the 128 physical HUB75 columns. It sends b"FFT2" + 128 amplitude bytes + 128
+waveform bytes,
 ~25 packets/s to the same port the stats JSON uses. The waveform tail is what
 the device's oscilloscope style draws; firmware that predates it reads the
 bands and ignores the rest, so the packet stays backwards compatible. The device only shows them in its forced
@@ -42,23 +43,30 @@ except Exception as e:  # missing package OR no audio backend on this system
 RATE = 48000
 FRAMES = 1920            # 40 ms blocks -> 25 packets/s
 FFT_N = 2048
-BANDS = 32
-F_LO, F_HI = 50.0, 16000.0
+HOP_N = 256              # Mica's SpectrumSampleWindow advance size
+# Mica's mode 0 derives its display bands from the canvas, not the preset's
+# legacy 38-band control. 1600 px is the project's reference desktop width;
+# there are no bin collisions at this width for the default 20..1000 Hz range.
+MODE0_VIEWPORT_WIDTH = 1600.0
+BANDS = 128
+F_LO, F_HI = 20.0, 1000.0
+FFT2_MAGIC = b"FFT2"
 
-# Waveform tail. Decimating by 8 low-passes the trace to roughly 3 kHz, which
-# is what makes it read as an oscilloscope rather than as noise, and leaves
-# 240 filtered points per block to pick a trigger-aligned window of 128 from.
+# Mica Audio DSP pipeline calibration constants
+DB_FLOOR = -85.0
+DB_CEILING = -25.0
+LINEAR_BOOST = 1.30
+FFT_SMOOTHING = 0.75
+SMOOTHER_RISE = 0.82
+SMOOTHER_FALL = 0.06
+SMOOTHER_DAMPING = 0.30
+
+# Waveform tail for oscilloscope style.
 WAVE_POINTS = 128
 WAVE_DECIM = 8
 WAVE_AGC_DECAY = 0.55    # per second, multiplicative
 WAVE_AGC_FLOOR = 0.02    # silence stays a flat line instead of amplified noise
 WAVE_GAIN = 118.0        # peak deflection, leaving headroom inside +/-128
-
-# AGC: the reference level tracks the loudest recent band and decays slowly,
-# so quiet and loud music both use the full bar height.
-AGC_RANGE_DB = 38.0      # dB span mapped onto 0..255
-AGC_DECAY_DB_PER_S = 1.5
-AGC_FLOOR_DB = -55.0
 
 # Auto-start defaults (dBFS / seconds).
 AUTO_THRESHOLD_DB = -45.0
@@ -107,6 +115,130 @@ def frame_action(age_s):
     if age_s < GIVE_UP_S:
         return "decay"
     return "stop"
+
+
+def resample_audio_motion_bands(source):
+    """Mica's endpoint-preserving linear 38->128 spectrum resample."""
+    source = np.asarray(source, dtype=np.float32)
+    if source.size == 0:
+        return np.zeros(BANDS, dtype=np.uint8)
+    if source.size == BANDS:
+        return np.clip(np.rint(source), 0, 255).astype(np.uint8)
+    positions = np.linspace(0.0, float(source.size - 1), BANDS,
+                            dtype=np.float32)
+    left = positions.astype(np.intp)
+    right = np.minimum(left + 1, source.size - 1)
+    blend = positions - left
+    values = source[left] * (1.0 - blend) + source[right] * blend
+    # Mica's ESP transport rounds normalized values to the nearest byte.
+    return np.clip(np.rint(values), 0, 255).astype(np.uint8)
+
+
+def build_b_weighting_multipliers(fft_size, sample_rate):
+    """B-weighting acoustic curve power multipliers per FFT bin (matching Mica Audio)."""
+    if np is None:
+        return None
+    half = fft_size // 2
+    multipliers = np.ones(half + 1, dtype=np.float32)
+    c1 = 424.36
+    c2 = 148693636.0
+    for bin_idx in range(1, half + 1):
+        freq = float(bin_idx) * sample_rate / fft_size
+        f2 = freq * freq
+        denom = (f2 + c1) * np.sqrt(f2 + 25122.25) * (f2 + c2)
+        if denom > 0:
+            val = (c2 * f2 * freq) / denom
+            db = 0.17 + 20.0 * np.log10(max(val, 1e-30))
+            amp_mult = 10.0 ** (db / 20.0)
+            power_mult = amp_mult * amp_mult
+            multipliers[bin_idx] = float(np.clip(power_mult, 1e-12, 1e12))
+    return multipliers
+
+
+def to_bark(hz):
+    """Converts frequency in Hz to Bark psychoacoustic scale (matching Mica Audio)."""
+    return ((26.81 * hz) / (1960.0 + hz)) - 0.53
+
+
+def from_bark(val):
+    """Converts Bark scale value back to frequency in Hz (matching Mica Audio)."""
+    denom = max(1e-6, (26.81 / (val + 0.53)) - 1.0)
+    return 1960.0 / denom
+
+
+def build_mode0_band_ranges(fft_size, sample_rate, min_hz=F_LO, max_hz=F_HI,
+                            viewport_width=MODE0_VIEWPORT_WIDTH):
+    """Mica ``LogBandMapper.CreateMode0Ranges`` for its Bark-scale preset.
+
+    Mode 0 maps FFT bins directly to pixel x positions. Consecutive bins that
+    land on the same pixel are aggregated into a single display range; at the
+    reference width and frequency range each usable bin gets its own range.
+    """
+    if np is None:
+        return []
+    width = max(1.0, float(viewport_width))
+    width_int = max(1, int(np.rint(width)))
+    max_analyser_bin = (fft_size // 2) - 1
+    if max_analyser_bin < 1 or max_hz <= min_hz or min_hz <= 0.0:
+        return []
+
+    edge_inset = 1 if width_int > 2 else 0
+    x_min = edge_inset
+    x_max = max(x_min, width_int - 1 - edge_inset)
+    min_scale = to_bark(min_hz)
+    max_scale = to_bark(max_hz)
+    unit_width = width / max(1e-6, max_scale - min_scale)
+    min_bin = int(np.clip(np.floor(min_hz * fft_size / sample_rate),
+                          1, max_analyser_bin))
+    max_bin_exclusive = int(np.clip(np.ceil(max_hz * fft_size / sample_rate),
+                                    min_bin + 1, max_analyser_bin + 1))
+    ranges = []
+    previous_x = None
+    for bin_index in range(min_bin, max_bin_exclusive):
+        frequency = max(1.0, (bin_index + 0.5) * sample_rate / float(fft_size))
+        x = int(np.rint((to_bark(frequency) - min_scale) * unit_width))
+        x = int(np.clip(x, x_min, x_max))
+        end_exclusive = min(max_analyser_bin + 1, bin_index + 1)
+        if previous_x is None or x > previous_x:
+            ranges.append((bin_index, end_exclusive))
+            previous_x = x
+        else:
+            start, _ = ranges[-1]
+            ranges[-1] = (start, end_exclusive)
+
+    return ranges
+
+
+class EnvelopeSmoother:
+    """Two-stage attack/decay smoother with second-order motion damping (matching Mica Audio)."""
+
+    def __init__(self, size, rise=0.82, fall=0.06, damping=0.30):
+        self.rise = float(np.clip(rise, 0.0, 1.0)) if np else rise
+        self.fall = float(np.clip(fall, 0.0, 1.0)) if np else fall
+        self.damping = float(np.clip(damping, 0.0, 1.0)) if np else damping
+        self.target_state = np.zeros(size, dtype=np.float32) if np else []
+        self.smoothed_state = np.zeros(size, dtype=np.float32) if np else []
+
+    def reset(self):
+        if np and isinstance(self.target_state, np.ndarray):
+            self.target_state.fill(0.0)
+            self.smoothed_state.fill(0.0)
+
+    def process(self, input_values):
+        if np is None:
+            return input_values
+        input_values = np.asarray(input_values, dtype=np.float32)
+        if input_values.shape != self.target_state.shape:
+            self.target_state = np.zeros_like(input_values)
+            self.smoothed_state = np.zeros_like(input_values)
+
+        # Vectorized attack / decay:
+        speed = np.where(input_values > self.target_state, self.rise, self.fall)
+        self.target_state += (input_values - self.target_state) * speed
+
+        # Second-order motion damping:
+        self.smoothed_state += (self.target_state - self.smoothed_state) * self.damping
+        return self.smoothed_state.copy()
 
 
 def boost_thread_priority():
@@ -277,16 +409,30 @@ class SpectrumStreamer(threading.Thread):
         self._last_wave = None
         self._last_frame_at = 0.0
 
-        # Precompute the window and the FFT-bin span of each log band.
-        self._window = np.hanning(FRAMES).astype(np.float32)
-        edges = F_LO * (F_HI / F_LO) ** (np.arange(BANDS + 1) / BANDS)
-        bin_hz = RATE / float(FFT_N)
-        self._band_bins = []
-        for i in range(BANDS):
-            lo = int(edges[i] / bin_hz)
-            hi = max(lo + 1, int(edges[i + 1] / bin_hz))
-            self._band_bins.append((lo, hi))
-        self._agc_ref = AGC_FLOOR_DB
+        # State mirrors Mica's SpectrumAnalyzer. Audio is appended in 40 ms
+        # capture blocks but analysed from a 2048-sample rolling window every
+        # 256 samples, so the envelope progresses at the same cadence as Mica.
+        self._window = np.hanning(FFT_N).astype(np.float32)
+        self._display_ranges = build_mode0_band_ranges(
+            FFT_N, RATE, F_LO, F_HI, MODE0_VIEWPORT_WIDTH)
+        self._sample_window = np.empty(0, dtype=np.float32)
+
+        # B-weighting power multipliers per FFT bin.
+        self._b_weight = build_b_weighting_multipliers(FFT_N, RATE)
+
+        # Exponential FFT smoothing state (alpha = FFT_SMOOTHING).
+        self._smoothed_power = None
+
+        # Two-stage envelope smoother (attack/decay/damping).
+        self._envelope = EnvelopeSmoother(
+            len(self._display_ranges), SMOOTHER_RISE, SMOOTHER_FALL,
+            SMOOTHER_DAMPING)
+
+        # Linear normalization thresholds (matching Mica Audio calibration).
+        self._amp_floor = 10.0 ** (DB_FLOOR / 20.0)
+        self._amp_ceil = 10.0 ** (DB_CEILING / 20.0)
+        self._amp_range = self._amp_ceil - self._amp_floor
+
         self._wave_ref = WAVE_AGC_FLOOR
 
     def set_target(self, ip, port):
@@ -377,19 +523,61 @@ class SpectrumStreamer(threading.Thread):
                 self._mode_pending = "viz"
                 self._mode_retry_at = 0.0
 
-    def _process_block(self, mono):
-        spec = np.abs(np.fft.rfft(mono * self._window, n=FFT_N))
-        amps = np.empty(BANDS, dtype=np.float32)
-        for i, (lo, hi) in enumerate(self._band_bins):
-            amps[i] = np.sqrt(np.mean(spec[lo:hi] ** 2))
-        db = 20.0 * np.log10(amps + 1e-7)
+    def _analyse_window(self, samples):
+        """Analyse one 2048-sample Mica window and return its Bins128 payload."""
+        # 1. FFT → normalised power spectrum  (Mica FftUtility.PowerSpectrum)
+        fft_out = np.fft.rfft(samples * self._window, n=FFT_N)
+        power = (fft_out.real ** 2 + fft_out.imag ** 2) / (FFT_N * FFT_N)
 
-        peak = float(db.max())
-        dt = FRAMES / float(RATE)
-        self._agc_ref = max(self._agc_ref - AGC_DECAY_DB_PER_S * dt,
-                            peak, AGC_FLOOR_DB)
-        norm = (db - (self._agc_ref - AGC_RANGE_DB)) / AGC_RANGE_DB
-        return np.clip(norm * 255.0, 0, 255).astype(np.uint8)
+        # 2. Mica's FftSmoothing is the previous-frame weight, not the
+        # current-frame interpolation factor.
+        if self._smoothed_power is None or self._smoothed_power.shape != power.shape:
+            self._smoothed_power = power.copy()
+        else:
+            self._smoothed_power *= FFT_SMOOTHING
+            self._smoothed_power += power * (1.0 - FFT_SMOOTHING)
+
+        # 3. B-weighting  (per Mica's WeightingCurve.BuildPowerMultipliers)
+        weighted = self._smoothed_power * self._b_weight
+
+        # 4. AudioMotion display bands use a peak aggregate. This is distinct
+        # from Mica's separate 64-band RMS output used by non-display clients.
+        amps = np.empty(len(self._display_ranges), dtype=np.float32)
+        for i, (lo, hi) in enumerate(self._display_ranges):
+            segment = weighted[lo:hi]
+            amps[i] = np.sqrt(np.max(segment)) if segment.size > 0 else 0.0
+
+        # 5. Linear amplitude normalization  (per Mica's LogBandMapper.NormalizeAmplitude)
+        norm = np.clip(
+            (amps - self._amp_floor) / self._amp_range * LINEAR_BOOST,
+            0.0, 1.0)
+
+        # 6. Envelope smoother  (per Mica's EnvelopeSmoother: rise/fall/damping)
+        smoothed = self._envelope.process(norm)
+
+        # 7. Mica LedPayloadFactory's endpoint-preserving display → Bins128
+        # resample, then byte conversion for the UDP protocol.
+        return resample_audio_motion_bands(smoothed * 255.0)
+
+    def _process_block(self, mono):
+        """Append captured samples and process every Mica 256-sample hop.
+
+        A 40 ms capture block normally yields seven or eight analyses after
+        warm-up. The caller still emits exactly one packet per capture block:
+        the newest frame, as the Mica renderer does.
+        """
+        samples = np.asarray(mono, dtype=np.float32).reshape(-1)
+        if samples.size:
+            self._sample_window = np.concatenate((self._sample_window, samples))
+
+        latest = None
+        while self._sample_window.size >= FFT_N:
+            latest = self._analyse_window(self._sample_window[:FFT_N])
+            self._sample_window = self._sample_window[HOP_N:]
+
+        if latest is not None:
+            return latest
+        return np.zeros(BANDS, dtype=np.uint8)
 
     def _process_wave(self, mono):
         """Trigger-aligned, decimated waveform as offset-binary bytes."""
@@ -432,7 +620,7 @@ class SpectrumStreamer(threading.Thread):
         if wave is None:
             wave = np.full(WAVE_POINTS, 128, dtype=np.uint8)
         try:
-            packet = (b"FFT1" + bands.astype(np.uint8).tobytes()
+            packet = (FFT2_MAGIC + bands.astype(np.uint8).tobytes()
                       + wave.astype(np.uint8).tobytes())
             self._sock.sendto(packet, target)
             self.last_sent = time.monotonic()

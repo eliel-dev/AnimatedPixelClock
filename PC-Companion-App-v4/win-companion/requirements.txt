@@ -17,7 +17,7 @@ pywebview       # Native window hosting the local web UI (Edge WebView2 backend)
 # build the .exe - build_exe.bat bundles them so the feature works out of the box:
 #   python -m pip install soundcard numpy
 soundcard       # WASAPI loopback capture of what the PC is playing
-numpy           # FFT for the 32-band spectrum
+numpy           # FFT for the 38-band AudioMotion analyser / 128 HUB75 columns
 
 # On Windows, pywebview uses the Edge WebView2 backend via pythonnet (clr); pip
 # installs pythonnet as a dependency of pywebview. The WebView2 runtime itself

@@ -511,7 +511,8 @@ void handleUDP() {
     if (len > 0) {
       buffer[len] = '\0';
 
-      // Binary spectrum packets ("FFT1" + 32 bands) arrive at ~25 Hz - take
+      // Binary spectrum packets (legacy "FFT1" or 128-column "FFT2") arrive
+      // at ~25 Hz - take
       // the fast path with no JSON parse and no serial logging. They do NOT
       // touch lastReceived/online: stats freshness stays truthful.
       if (vizIngest((const uint8_t*)buffer, len)) {

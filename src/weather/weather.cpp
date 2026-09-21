@@ -2,10 +2,8 @@
  * AnimatedPixelClock - Weather Module (Open-Meteo)
  *
  * The fetch (DNS + TLS handshake + transfer) can block for seconds, so it
- * runs in a task pinned to core 0 - never in loop(), where it would visibly
- * freeze a 60 Hz animation. The task lives for one fetch: weatherLoop()
- * starts it when a fetch is due and it deletes itself, so its stack is not
- * held in internal SRAM between fetches. Results are copied into `published`
+ * runs in its own task pinned to core 0 - never in loop(), where it would
+ * visibly freeze a 60 Hz animation. Results are copied into `published`
  * under a spinlock; the render loop takes snapshots via getWeather().
  */
 
@@ -23,19 +21,10 @@
 #define WEATHER_FETCH_INTERVAL_MS (10UL * 60UL * 1000UL)
 #define WEATHER_RETRY_INTERVAL_MS (60UL * 1000UL)
 #define WEATHER_IDLE_POLL_MS 5000UL
-#define WEATHER_TASK_STACK 8192
 
 static WeatherData published = {};
 static portMUX_TYPE weatherMux = portMUX_INITIALIZER_UNLOCKED;
-
-// The next check comes waitMs after waitFromMs: the full interval after a
-// fetch, WEATHER_IDLE_POLL_MS while nothing can show the weather. fetchBusy is set by loop() before the task starts and cleared
-// by the task last, after it has written waitFromMs and waitMs; loop() reads
-// those two only while fetchBusy is clear.
-static volatile bool fetchBusy = false;
-static volatile bool fetchKick = false;
-static volatile unsigned long waitFromMs = 0;
-static volatile unsigned long waitMs = 0;  // 0: check now
+static TaskHandle_t weatherTaskHandle = nullptr;
 
 bool weatherConfigured() {
   // 0,0 (middle of the Atlantic) doubles as the "unset" marker.
@@ -62,8 +51,8 @@ WeatherData getWeather() {
   return copy;
 }
 
-WeatherIconKind weatherIconFromCode(int code) {
-  if (code == 0) return WICON_SUN;
+WeatherIconKind weatherIconFromCode(int code, bool isDay) {
+  if (code == 0) return isDay ? WICON_SUN : WICON_MOON;
   if (code <= 2) return WICON_PARTCLOUD;
   if (code == 3) return WICON_CLOUD;
   if (code == 45 || code == 48) return WICON_FOG;
@@ -91,7 +80,7 @@ static bool fetchWeather() {
   // The commercial tier uses the same API on a customer- host with an apikey.
   snprintf(url, sizeof(url),
            "https://%s/v1/forecast?latitude=%.4f&longitude=%.4f"
-           "&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m"
+           "&current=temperature_2m,relative_humidity_2m,weather_code,is_day,wind_speed_10m"
            "&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset"
            "&timezone=auto&forecast_days=1%s%s",
            hasKey ? "customer-api.open-meteo.com" : "api.open-meteo.com",
@@ -129,6 +118,7 @@ static bool fetchWeather() {
   fresh.tempC = current["temperature_2m"] | 0.0f;
   fresh.humidity = current["relative_humidity_2m"] | 0;
   fresh.weatherCode = current["weather_code"] | 3;
+  fresh.isDay = (current["is_day"] | 1) != 0;
   fresh.windKmh = current["wind_speed_10m"] | 0.0f;
   fresh.tempMaxC = daily["temperature_2m_max"][0] | 0.0f;
   fresh.tempMinC = daily["temperature_2m_min"][0] | 0.0f;
@@ -146,40 +136,28 @@ static bool fetchWeather() {
   return true;
 }
 
-static void weatherFetchTask(void*) {
-  bool ok = fetchWeather();
-  waitFromMs = millis();
-  waitMs = ok ? WEATHER_FETCH_INTERVAL_MS : WEATHER_RETRY_INTERVAL_MS;
-  fetchBusy = false;
-  vTaskDelete(nullptr);
-}
-
-void weatherLoop() {
-  if (fetchBusy) return;
-  const unsigned long now = millis();
-  // A settings change (new location, toggle) ends the wait early.
-  if (fetchKick) {
-    fetchKick = false;
-    waitMs = 0;
-  }
-  if (now - waitFromMs < waitMs) return;
-  if (!weatherConfigured() || !weatherOnScreen() ||
-      WiFi.status() != WL_CONNECTED) {
-    waitFromMs = now;
-    waitMs = WEATHER_IDLE_POLL_MS;
-    return;
-  }
-  fetchBusy = true;
-  // Core 0: the Arduino loop (and the HUB75 DMA refresh) live on core 1.
-  if (xTaskCreatePinnedToCore(weatherFetchTask, "weather", WEATHER_TASK_STACK,
-                              nullptr, 1, nullptr, 0) != pdPASS) {
-    Serial.println("Weather fetch task not started, retrying in a minute");
-    fetchBusy = false;
-    waitFromMs = now;
-    waitMs = WEATHER_RETRY_INTERVAL_MS;
+static void weatherTask(void*) {
+  for (;;) {
+    if (!weatherConfigured() || !weatherOnScreen() ||
+        WiFi.status() != WL_CONNECTED) {
+      ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(WEATHER_IDLE_POLL_MS));
+      continue;
+    }
+    bool ok = fetchWeather();
+    // Sleeps the full interval, but a settings change (new location, toggle)
+    // kicks the task awake early via weatherSettingsChanged().
+    ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(ok ? WEATHER_FETCH_INTERVAL_MS
+                                              : WEATHER_RETRY_INTERVAL_MS));
   }
 }
 
 void weatherSettingsChanged() {
-  fetchKick = true;
+  if (weatherTaskHandle) xTaskNotifyGive(weatherTaskHandle);
+}
+
+void startWeatherTask() {
+  if (weatherTaskHandle) return;
+  // Core 0: the Arduino loop (and the HUB75 DMA refresh) live on core 1.
+  xTaskCreatePinnedToCore(weatherTask, "weather", 8192, nullptr, 1,
+                          &weatherTaskHandle, 0);
 }

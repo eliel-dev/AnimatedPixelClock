@@ -326,8 +326,8 @@ while music plays or the clock the rest of the time.
 
 ## Audio visualizer (optional)
 
-With the companion app streaming your PC's sound, the display becomes a 32-band
-spectrum analyzer: smooth bars with a green/yellow/red gradient (colors editable),
+With the companion app streaming your PC's sound, the display becomes a spectrum
+analyzer: smooth bars with a green/yellow/red gradient (colors editable),
 falling peak dots, and an optional small clock in the corner.
 
 Choose **Visualizer style** in the device web UI's **Display -> Audio visualizer**
@@ -347,6 +347,9 @@ card, then **Save settings**:
   trail behind it. The trace is trigger-aligned on the PC so it stands still
   instead of sliding, and it takes its colors from the same three editable slots
   as Classic EQ (grid from the low color, trace from mid, peaks from the top one).
+- **AudioMotion Clone**: 128 independent one-pixel columns mirrored around the
+  panel centre, using the Mica rainbow palette. The current Companion supplies
+  the 128 columns via `FFT2`; older 32-band `FFT1` senders remain supported.
 
 Classic EQ and the Oscilloscope each have their own color pickers, and the
 **Colors and options** card shows the set that belongs to the selected style; the others use fixed palettes. All of them support the small clock and the same companion audio

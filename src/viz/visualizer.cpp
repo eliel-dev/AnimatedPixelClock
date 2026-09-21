@@ -23,6 +23,10 @@
 #define VIZ_PEAK_GRAVITY 60.0f  // px/s^2
 
 static uint8_t vizBands[VIZ_BANDS];
+// The Mica physical renderer operates on one amplitude per HUB75 column.
+// Keep this separate from vizBands so the existing 32-band styles retain their
+// established geometry and response.
+static uint8_t vizAudioMotionBands[VIZ_AUDIOMOTION_BANDS];
 static uint8_t vizWave[VIZ_WAVE_POINTS];
 static bool vizWaveEver = false;
 static uint32_t vizWaveserial = 0;
@@ -44,6 +48,89 @@ static uint8_t lastStyle = 255;
 
 static uint16_t vizRgb(int r, int g, int b) {
   return ((r & 0xf8) << 8) | ((g & 0xfc) << 3) | (b >> 3);
+}
+
+static uint16_t blendVizColor(uint16_t a, uint16_t b, float amount) {
+  if (amount < 0.0f) amount = 0.0f;
+  if (amount > 1.0f) amount = 1.0f;
+  int ar = ((a >> 11) & 0x1f) * 255 / 31;
+  int ag = ((a >> 5) & 0x3f) * 255 / 63;
+  int ab = (a & 0x1f) * 255 / 31;
+  int br = ((b >> 11) & 0x1f) * 255 / 31;
+  int bg = ((b >> 5) & 0x3f) * 255 / 63;
+  int bb = (b & 0x1f) * 255 / 31;
+  return vizRgb(ar + (int)((br - ar) * amount),
+                ag + (int)((bg - ag) * amount),
+                ab + (int)((bb - ab) * amount));
+}
+
+static void drawMirroredLegacy() {
+  // AudioMotion-inspired mirrored bars: the spectrum grows from the centre
+  // line in both directions while the existing smoothed bands drive height.
+  const int centreY = settings.vizShowClock ? 35 : 32;
+  const float maxHeight = settings.vizShowClock ? 23.0f : 25.0f;
+  const uint16_t low = SPRITE_COLOR(COL_VIZ_LOW);
+  const uint16_t mid = SPRITE_COLOR(COL_VIZ_MID);
+  const uint16_t peak = SPRITE_COLOR(COL_VIZ_PEAK);
+
+  for (int i = 0; i < VIZ_BANDS; ++i) {
+    float level = barH[i] / VIZ_MAX_H;
+    if (level < 0.01f) continue;
+    float position = i / (float)(VIZ_BANDS - 1);
+    uint16_t color = position < 0.5f
+                         ? blendVizColor(low, mid, position * 2.0f)
+                         : blendVizColor(mid, peak, (position - 0.5f) * 2.0f);
+    int height = 1 + (int)(level * maxHeight);
+    if (height > (settings.vizShowClock ? 23 : 25))
+      height = settings.vizShowClock ? 23 : 25;
+    int x = i * 4;
+    display.fillRect(x, centreY - height, VIZ_BAR_W, height, color);
+    display.fillRect(x, centreY + 1, VIZ_BAR_W, height, color);
+  }
+  display.drawFastHLine(0, centreY, SCREEN_WIDTH, vizRgb(35, 35, 55));
+}
+
+static uint16_t micaRainbowForColumn(int column, int columnCount) {
+  // Exact hue partitioning used by Mica's HUB75 fallback renderer.
+  if (columnCount <= 1) return vizRgb(255, 0, 0);
+  const uint8_t hue = (uint8_t)((column * 255u) / (columnCount - 1u));
+  const uint8_t region = hue / 43u;
+  const uint8_t remainder = (uint8_t)((hue - region * 43u) * 6u);
+  const uint8_t q = (uint8_t)(255u - remainder);
+  switch (region) {
+    case 0: return vizRgb(255, remainder, 0);
+    case 1: return vizRgb(q, 255, 0);
+    case 2: return vizRgb(0, 255, remainder);
+    case 3: return vizRgb(0, q, 255);
+    case 4: return vizRgb(remainder, 0, 255);
+    default: return vizRgb(255, 0, q);
+  }
+}
+
+static inline uint8_t smoothBinsSample(const uint8_t *bins, int x) {
+  // Mica's 3-tap spatial filter: [1, 2, 1] / 4
+  const int left  = x > 0   ? bins[x - 1] : bins[0];
+  const int right = x < 127 ? bins[x + 1] : bins[127];
+  return (uint8_t)((left + 2 * (int)bins[x] + right) >> 2);
+}
+
+static void drawAudioMotionClone(bool stale) {
+  // Pixel-for-pixel port of Mica's drawMirrorLinesVisual: one column per
+  // HUB75 pixel, 3-tap spatial smoothing, height rounded upward to 0..31,
+  // mirrored symmetrically about midY=32.
+  if (stale) return;
+  const int columns = SCREEN_WIDTH < VIZ_AUDIOMOTION_BANDS
+                          ? SCREEN_WIDTH : VIZ_AUDIOMOTION_BANDS;
+  const int midY = SCREEN_HEIGHT / 2;   // 32
+  for (int x = 0; x < columns; ++x) {
+    const uint8_t amplitude = smoothBinsSample(vizAudioMotionBands, x);
+    // Ceiling division: maps 1..255 → 1..31, 0 → 0 (matching Mica's amplitudeToHeight)
+    const int halfHeight = (amplitude * 31 + 254) / 255;
+    if (halfHeight == 0) continue;
+    const uint16_t color = micaRainbowForColumn(x, columns);
+    // Symmetric vertical line centred at midY: total height = 2*halfHeight - 1
+    display.drawFastVLine(x, midY - (halfHeight - 1), 2 * halfHeight - 1, color);
+  }
 }
 
 static void drawPurpleStage(unsigned long now) {
@@ -145,11 +232,52 @@ static void drawPhosphorWaterfall(unsigned long now, bool stale) {
   }
 }
 
+static void interpolateToAudioMotion(const uint8_t* source, int sourceCount) {
+  if (sourceCount <= 0) {
+    memset(vizAudioMotionBands, 0, sizeof(vizAudioMotionBands));
+    return;
+  }
+  for (int i = 0; i < VIZ_AUDIOMOTION_BANDS; ++i) {
+    const float scaled = VIZ_AUDIOMOTION_BANDS == 1
+                             ? 0.0f
+                             : i * (sourceCount - 1.0f) /
+                                   (VIZ_AUDIOMOTION_BANDS - 1.0f);
+    const int left = (int)floorf(scaled);
+    const int right = left + 1 < sourceCount ? left + 1 : left;
+    const float blend = scaled - left;
+    // FFT1 has already been quantised, so use the same nearest-byte boundary
+    // as Mica's normalized Bins128 transport.
+    vizAudioMotionBands[i] = (uint8_t)(source[left] * (1.0f - blend) +
+                                        source[right] * blend + 0.5f);
+  }
+}
+
+static void reduceToLegacyBands() {
+  for (int i = 0; i < VIZ_BANDS; ++i) {
+    const int first = i * VIZ_AUDIOMOTION_BANDS / VIZ_BANDS;
+    const int last = (i + 1) * VIZ_AUDIOMOTION_BANDS / VIZ_BANDS;
+    uint16_t sum = 0;
+    for (int j = first; j < last; ++j) sum += vizAudioMotionBands[j];
+    vizBands[i] = (uint8_t)(sum / (last - first));
+  }
+}
+
 bool vizIngest(const uint8_t* buf, int len) {
-  if (len < VIZ_PACKET_LEN || memcmp(buf, "FFT1", 4) != 0) return false;
-  memcpy(vizBands, buf + 4, VIZ_BANDS);
-  if (len >= VIZ_WAVE_PACKET_LEN) {
-    memcpy(vizWave, buf + VIZ_PACKET_LEN, VIZ_WAVE_POINTS);
+  if (len < 4) return false;
+  int waveOffset = 0;
+  if (len >= VIZ_PACKET2_LEN && memcmp(buf, "FFT2", 4) == 0) {
+    memcpy(vizAudioMotionBands, buf + 4, VIZ_AUDIOMOTION_BANDS);
+    reduceToLegacyBands();
+    waveOffset = VIZ_PACKET2_LEN;
+  } else if (len >= VIZ_PACKET_LEN && memcmp(buf, "FFT1", 4) == 0) {
+    memcpy(vizBands, buf + 4, VIZ_BANDS);
+    interpolateToAudioMotion(vizBands, VIZ_BANDS);
+    waveOffset = VIZ_PACKET_LEN;
+  } else {
+    return false;
+  }
+  if (len >= waveOffset + VIZ_WAVE_POINTS) {
+    memcpy(vizWave, buf + waveOffset, VIZ_WAVE_POINTS);
     vizWaveEver = true;
     ++vizWaveserial;
   } else {
@@ -265,15 +393,18 @@ void displayVisualizer() {
   }
   if (settings.vizStyle == 6)
     drawOscilloscope(vizWaveform(), vizWaveserial, stale, dt, resetStyle);
+  if (settings.vizStyle == 7) drawMirroredLegacy();
+  if (settings.vizStyle == 8) drawAudioMotionClone(stale);
 
-  if (stale) {
+  bool audioMotionFullscreen = settings.vizStyle == 8;
+  if (stale && !audioMotionFullscreen) {
     display.setTextSize(1);
     display.setTextColor(DISPLAY_WHITE);
     display.setCursor(25, 28);
     display.print("No audio data...");
   }
 
-  if (settings.vizShowClock) {
+  if (settings.vizShowClock && !audioMotionFullscreen) {
     drawVizClock();
   }
 }

@@ -50,9 +50,12 @@ this checkbox off plus auto-start on.
 
 The Connection page has an **Audio visualizer stream** checkbox: when enabled, the
 companion captures whatever the PC is playing (WASAPI loopback on Windows,
-PulseAudio monitor on Linux), reduces it to a 32-band spectrum and streams it to
-the device as tiny binary UDP packets (`"FFT1"` + 32 bytes, ~25/s) alongside the
-stats JSON on the same port. The display shows it in its visualizer mode
+PulseAudio monitor on Linux), runs the AudioMotion Clone Mode 0 analyser in
+256-sample hops and linearly resamples its display bands to the 128 physical
+HUB75 columns. It streams
+them as tiny binary UDP packets (`"FFT2"` + 128 bytes, ~25/s) alongside the
+stats JSON on the same port. Firmware keeps accepting the previous `"FFT1"` +
+32-byte format for older Companions. The display shows it in its visualizer mode
 (device web UI -> Display -> Audio visualizer -> Start, or `GET /api/mode/viz`).
 
 It needs two extra packages: `pip install soundcard numpy`. Without them the

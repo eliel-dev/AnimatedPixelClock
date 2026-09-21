@@ -2,8 +2,8 @@
  * hello_matrix.cpp - HUB75 RGB matrix hardware bring-up (Phase 1)
  * Project: AnimatedPixelClock
  *
- * Target: any supported ESP32-S3 board driving 2x Waveshare P2.5 64x64 HUB75E
- *         panels chained (panel1 JOUT -> panel2 JIN) = 128x64 RGB.
+ * Target: any supported ESP32-S3 board driving one 128x64 HUB75E panel
+ *         (1/32 scan) = 128x64 RGB.
  *
  * Build / flash:  platformio run -e matrix-s3-bringup --target upload
  *   (or matrix-wroom-bringup / matrix-waveshare-bringup)
@@ -13,11 +13,7 @@
  * pin map, color order, 1/32 scan, panel chaining/seam, and FM6126A init.
  *
  * --- IF THE SCREEN IS DEAD-BLACK ---
- *   With PANELS=2 a blank screen is undiagnosable (panel1? panel2? ribbon?
- *   FM6126A? ESP wiring?). First recovery step: set PANELS to 1 below,
- *   reflash, and drive ONLY the panel wired to the ESP. Once that single
- *   panel lights, restore PANELS=2; the seam test (pattern 6) then validates
- *   the chain. Also try toggling USE_FM6126A.
+ *   Also try toggling USE_FM6126A.
  */
 
 #include <Arduino.h>
@@ -28,15 +24,9 @@
 #include "display/hub75_pins.h"
 
 // ---- Panel geometry ----
-#define PANEL_W 64    // single module width
+#define PANEL_W 128   // physical panel width
 #define PANEL_H 64    // single module height
-#define PANELS  2     // chain length: 2 = full 128x64 (set to 1 to isolate)
-
-// ---- Driver init ----
-// Waveshare 64x64 units commonly use FM6126A, which needs an init sequence.
-// KNOWN UNKNOWN until verified against the panel's IC markings: if the screen
-// stays blank with this ON, set it to 0 (and vice-versa).
-#define USE_FM6126A 1
+#define PANELS  1     // one physical panel
 
 // Clock phase. Default-true drops the RIGHTMOST column on some panels (esp.
 // FM6126A Waveshare) - the missing right-edge column / corner. Set false to fix.
@@ -70,10 +60,12 @@ void setup() {
       HUB75_PIN_LAT, HUB75_PIN_OE, HUB75_PIN_CLK};
 
   HUB75_I2S_CFG mxconfig(PANEL_W, PANEL_H, PANELS, pins);
-#if USE_FM6126A
-  mxconfig.driver = HUB75_I2S_CFG::FM6126A;
-#endif
+  mxconfig.driver = HUB75_I2S_CFG::SHIFTREG;
+  mxconfig.i2sspeed = HUB75_I2S_CFG::HZ_10M;
   mxconfig.clkphase = CLK_PHASE;   // fixes dropped rightmost column (see define)
+  mxconfig.latch_blanking = 2;
+  mxconfig.min_refresh_rate = 60;
+  mxconfig.setPixelColorDepthBits(6);
   // Internal SRAM DMA only - do NOT route the buffer through the S3-Zero's
   // slow Quad-SPI PSRAM (library default is internal SRAM, so leave as-is).
 
@@ -121,8 +113,7 @@ void loop() {
   dma->drawLine(0, 0, TOTAL_W - 1, PANEL_H - 1, WHITE);
   hold("diagonal", 2000);
 
-  // 6. Seam test - left half RED, right half BLUE. Confirms JOUT->JIN chain
-  //    order and a clean panel boundary at x=64 (meaningful with PANELS>=2).
+  // 6. Half-panel test - left half RED, right half BLUE.
   dma->fillRect(0, 0, TOTAL_W / 2, PANEL_H, RED);
   dma->fillRect(TOTAL_W / 2, 0, TOTAL_W - TOTAL_W / 2, PANEL_H, BLUE);
   hold("seam test (L=red R=blue)", 3000);

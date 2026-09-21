@@ -1,8 +1,9 @@
 /*
  * AnimatedPixelClock - Audio Spectrum Visualizer
  *
- * 32-band bar EQ fed by the PC companion over UDP (binary "FFT1" packets,
- * ~25 Hz). Runs as a forced display mode (/api/mode/viz), like the clock
+ * Legacy 32-band and AudioMotion 128-column data fed by the PC companion over
+ * UDP (binary "FFT1" and "FFT2" packets, ~25 Hz). Runs as a forced display
+ * mode (/api/mode/viz), like the clock
  * and ambient overrides.
  */
 
@@ -11,15 +12,19 @@
 
 #include <Arduino.h>
 
-#define VIZ_BANDS 32
+#define VIZ_BANDS 32  // Legacy analyser bands used by the non-AudioMotion styles.
 #define VIZ_PACKET_LEN 36  // "FFT1" magic + 32 amplitude bytes
+#define VIZ_AUDIOMOTION_BANDS 128
+#define VIZ_PACKET2_LEN (4 + VIZ_AUDIOMOTION_BANDS)  // "FFT2" + 128 columns
 #define VIZ_WAVE_POINTS 128
 // Companions that know the oscilloscope append a trigger-aligned waveform.
 // Older ones send the short packet and the scope asks for a companion update.
 #define VIZ_WAVE_PACKET_LEN (VIZ_PACKET_LEN + VIZ_WAVE_POINTS)
+#define VIZ_WAVE_PACKET2_LEN (VIZ_PACKET2_LEN + VIZ_WAVE_POINTS)
 
-// Consume a UDP packet if it is a spectrum packet. Returns true when
-// consumed (caller skips JSON parsing and logging).
+// Consume a UDP packet if it is a spectrum packet. "FFT1" carries 32 legacy
+// bands; "FFT2" carries the 128 physical columns used by AudioMotion Clone.
+// Returns true when consumed (caller skips JSON parsing and logging).
 bool vizIngest(const uint8_t* buf, int len);
 
 // True when a spectrum packet arrived within the last maxAgeMs.

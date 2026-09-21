@@ -746,7 +746,7 @@ void displayClockWithTetris() {
   if (!getTimeWithTimeout(&timeinfo)) {
     display.setTextSize(1);
     display.setCursor(20, 28);
-    display.print(ntpSynced ? "Time Error" : "Syncing time...");
+    display.print(ntpSynced ? "Erro de hora" : "Sincronizando...");
     return;
   }
 

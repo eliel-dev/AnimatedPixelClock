@@ -139,10 +139,14 @@ const char* getDefaultTimezoneForOffset(int gmtOffsetMinutes) {
 
 // Get list of all supported timezones
 const TimezoneRegion* getSupportedTimezones(size_t* count) {
+  // This device build is intended for Brazil; keep the portal selector
+  // limited to the Brasilia timezone.
+  static const TimezoneRegion brasilia = {
+      "Brasilia (UTC-03:00)", "BRT3", -180};
   if (count != nullptr) {
-    *count = TIMEZONE_COUNT;
+    *count = 1;
   }
-  return timezoneDatabase;
+  return &brasilia;
 }
 
 // Find timezone by POSIX string

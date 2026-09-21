@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-accent="green" data-mode="dark">
+<html lang="pt-BR" data-accent="green" data-mode="dark">
 
 <head>
 <meta charset="utf-8">
@@ -40,16 +40,16 @@
       <span class="tb-ver">PC v4</span>
     </div>
     <span class="tb-sep"></span>
-    <span class="tb-crumb" id="crumb">Connection</span>
+    <span class="tb-crumb" id="crumb">Conexão</span>
     <div class="tb-right">
       <div class="acc-pick">
-        <span class="lab">Accent</span>
-        <button class="acc-sw on" data-acc="green" aria-label="Green"><i></i></button>
-        <button class="acc-sw" data-acc="amber" aria-label="Amber"><i></i></button>
+        <span class="lab">Destaque</span>
+        <button class="acc-sw on" data-acc="green" aria-label="Verde"><i></i></button>
+        <button class="acc-sw" data-acc="amber" aria-label="Âmbar"><i></i></button>
       </div>
       <div class="mode-toggle">
-        <button type="button" data-mode="light"><span class="ic"></span>Light</button>
-        <button type="button" data-mode="dark" class="on"><span class="ic"></span>Dark</button>
+        <button type="button" data-mode="light"><span class="ic"></span>Claro</button>
+        <button type="button" data-mode="dark" class="on"><span class="ic"></span>Escuro</button>
       </div>
     </div>
   </header>
@@ -59,28 +59,28 @@
   <div class="workspace">
     <aside class="sidebar">
       <nav class="nav-group">
-        <div class="nav-label">Configure</div>
-        <button class="nav-item active" data-nav="connection">Connection</button>
-        <button class="nav-item" data-nav="sensors">Sensors</button>
-        <button class="nav-item" data-nav="layout">Layout &amp; preview</button>
-        <button class="nav-item" data-nav="animations">Animations</button>
-        <button class="nav-item" data-nav="backup">Backup &amp; restore</button>
+        <div class="nav-label">Configurar</div>
+        <button class="nav-item active" data-nav="connection">Conexão</button>
+        <button class="nav-item" data-nav="sensors">Sensores</button>
+        <button class="nav-item" data-nav="layout">Layout e prévia</button>
+        <button class="nav-item" data-nav="animations">Animações</button>
+        <button class="nav-item" data-nav="backup">Backup e restauração</button>
       </nav>
       <div class="sidebar-spacer"></div>
       <div>
         <p class="rail-label">Status</p>
         <div class="status-readout">
-          <div class="sr-head"><span class="sr-led offline" id="srLed"></span><span class="sr-title" id="srTitle">Device offline</span></div>
+          <div class="sr-head"><span class="sr-led offline" id="srLed"></span><span class="sr-title" id="srTitle">Dispositivo offline</span></div>
           <dl class="sr-rows">
-            <div class="sr-row"><dt>device</dt><dd id="srDevice">-</dd></div>
-            <div class="sr-row"><dt>source</dt><dd id="srSource">-</dd></div>
-            <div class="sr-row"><dt>sending</dt><dd id="srCount">0 metrics</dd></div>
+            <div class="sr-row"><dt>dispositivo</dt><dd id="srDevice">-</dd></div>
+            <div class="sr-row"><dt>origem</dt><dd id="srSource">-</dd></div>
+            <div class="sr-row"><dt>enviando</dt><dd id="srCount">0 métricas</dd></div>
           </dl>
         </div>
       </div>
       <div class="about">
         <span class="line">AnimatedPixelClock PC Companion &middot; <b>v4</b></span>
-        <span class="line">Runs in the tray &middot; close window to hide</span>
+        <span class="line">Executa na bandeja &middot; feche para ocultar</span>
       </div>
     </aside>
 
@@ -90,73 +90,73 @@
         <!-- CONNECTION ------------------------------------------------ -->
         <section class="page active" data-page="connection">
           <div class="page-header">
-            <h1 class="page-h1">Connection</h1>
-            <p class="page-lede">Where to send your PC's sensor readings, and how often. The device address is shown on the OLED at boot.</p>
+            <h1 class="page-h1">Conexão</h1>
+            <p class="page-lede">Para onde enviar as leituras de sensores do seu PC e com que frequência. O endereço do dispositivo é exibido no display ao ligar.</p>
           </div>
           <div class="card">
-            <h2 class="card-title">Device <span class="tag">UDP</span></h2>
+            <h2 class="card-title">Dispositivo <span class="tag">UDP</span></h2>
             <div class="grid-2">
               <div class="field">
-                <label class="field-label" for="esp32_ip">Device IP address</label>
+                <label class="field-label" for="esp32_ip">Endereço IP do dispositivo</label>
                 <input type="text" id="esp32_ip" name="esp32_ip" placeholder="192.168.0.163" autocomplete="off">
               </div>
               <div class="field">
-                <label class="field-label" for="udp_port">UDP port</label>
+                <label class="field-label" for="udp_port">Porta UDP</label>
                 <input type="number" id="udp_port" name="udp_port" value="4210" min="1" max="65535">
               </div>
             </div>
             <div class="field">
-              <label class="field-label" for="update_interval">Update interval (seconds)</label>
+              <label class="field-label" for="update_interval">Intervalo de atualização (segundos)</label>
               <input type="number" id="update_interval" name="update_interval" value="3" min="0.5" step="0.5">
-              <p class="field-hint">How often to push fresh values. 3s is a good balance; lower is snappier but busier.</p>
+              <p class="field-hint">Frequência de envio de novos valores. 3s é um bom equilíbrio; menor é mais ágil, mas exige mais da rede.</p>
             </div>
             <label class="check-row standalone" style="margin-bottom:16px">
               <input type="checkbox" id="send_pc_stats" name="send_pc_stats" checked>
               <span class="check-box" aria-hidden="true"></span>
-              <span class="check-text"><strong>Send PC stats to the display</strong><span class="ct-hint">Off stops the metric packets, so the display shows its clock or ambient screen instead - and the visualizer whenever music plays. Sensors are not read while off, so the preview here freezes.</span></span>
+              <span class="check-text"><strong>Enviar estatísticas do PC para o display</strong><span class="ct-hint">Desativar pausa o envio de métricas, permitindo que o display mostre o relógio ou tela ambiente — e o visualizador sempre que houver música. Os sensores não são lidos enquanto desligado, congelando a prévia aqui.</span></span>
             </label>
             <label class="check-row standalone">
               <input type="checkbox" id="audio_viz" name="audio_viz">
               <span class="check-box" aria-hidden="true"></span>
-              <span class="check-text"><strong>Audio visualizer stream</strong><span class="ct-hint">Sends your PC's sound spectrum to the display (~25 small packets/s). Show it with the Audio visualizer card on the device's Display page.</span></span>
+              <span class="check-text"><strong>Transmissão do visualizador de áudio</strong><span class="ct-hint">Envia o espectro de som do PC para o display (~25 pequenos pacotes/s). Exiba-o através do cartão Visualizador de áudio na página Tela do dispositivo.</span></span>
             </label>
             <p class="field-hint" id="audioVizState"></p>
             <div class="subcard">
               <label class="check-row standalone">
                 <input type="checkbox" id="audio_viz_auto" name="audio_viz_auto">
                 <span class="check-box" aria-hidden="true"></span>
-                <span class="check-text"><strong>Start the visualizer when music plays</strong><span class="ct-hint">The companion switches the display into visualizer mode once sound keeps playing, and back to its normal mode after the quiet period. Needs the stream above.</span></span>
+                <span class="check-text"><strong>Iniciar visualizador ao tocar música</strong><span class="ct-hint">O Companion alterna o display para o modo visualizador automaticamente quando o som toca continuamente, e volta ao modo normal após o período de silêncio. Requer a transmissão acima ativada.</span></span>
               </label>
               <div class="grid-2" style="margin-top:16px">
                 <div class="field">
-                  <label class="field-label" for="audio_viz_start_delay">Start delay (seconds)</label>
+                  <label class="field-label" for="audio_viz_start_delay">Atraso de início (segundos)</label>
                   <input type="number" id="audio_viz_start_delay" name="audio_viz_start_delay" value="3" min="0" max="60" step="0.5">
-                  <p class="field-hint">Sound must keep playing this long before the display switches, so short sounds (Windows pops, chat notifications) are ignored.</p>
+                  <p class="field-hint">O som precisa tocar continuamente por esse tempo antes da troca de modo, ignorando sons curtos (notificações, bipes do Windows).</p>
                 </div>
                 <div class="field">
-                  <label class="field-label" for="audio_viz_stop_delay">Stop delay (seconds)</label>
+                  <label class="field-label" for="audio_viz_stop_delay">Atraso de parada (segundos)</label>
                   <input type="number" id="audio_viz_stop_delay" name="audio_viz_stop_delay" value="20" min="1" max="3600" step="1">
-                  <p class="field-hint">Quiet for this long hands the display back (PC stats, ambient or clock).</p>
+                  <p class="field-hint">Tempo em silêncio antes de retornar o display ao estado anterior (estatísticas do PC, tela ambiente ou relógio).</p>
                 </div>
               </div>
               <div class="field">
-                <label class="field-label" for="audio_viz_threshold">Sound threshold (dB)</label>
+                <label class="field-label" for="audio_viz_threshold">Limite de som (dB)</label>
                 <input type="number" id="audio_viz_threshold" name="audio_viz_threshold" value="-45" min="-80" max="-10" step="1">
-                <p class="field-hint">Anything quieter counts as silence. -45 fits normal listening; go lower (-55) if quiet music is missed, higher (-35) if background sounds trigger it.</p>
+                <p class="field-hint">Qualquer som mais baixo que isso conta como silêncio. -45 dB é adequado para uso normal; diminua (-55 dB) se músicas baixas não ativarem, ou aumente (-35 dB) se ruídos de fundo dispararem.</p>
               </div>
               <p class="field-hint" id="audioVizAutoState"></p>
             </div>
             <div class="page-actions">
-              <button type="button" class="btn" id="testConnBtn">Test connection</button>
+              <button type="button" class="btn" id="testConnBtn">Testar conexão</button>
             </div>
             <div class="note" id="connResult" style="display:none"></div>
           </div>
           <div class="card">
-            <h2 class="card-title">Windows autostart <span class="tag" id="autostartState">-</span></h2>
+            <h2 class="card-title">Inicialização com o Windows <span class="tag" id="autostartState">-</span></h2>
             <label class="check-row standalone">
               <input type="checkbox" id="autostartChk"><span class="check-box"></span>
-              <span class="check-text"><strong>Start with Windows</strong>
-                <span class="ct-hint">Saved instantly when you toggle it - no need to "Save &amp; push". Launches minimized to the tray at login (per-user, no admin). Waits 10s so LibreHardwareMonitor can start first.</span></span>
+              <span class="check-text"><strong>Iniciar com o Windows</strong>
+                <span class="ct-hint">Salvo instantaneamente ao marcar — sem necessidade de "Salvar e enviar". Inicia minimizado na bandeja ao fazer login (por usuário, sem privilégios de admin). Aguarda 10s para que o LibreHardwareMonitor inicie primeiro.</span></span>
             </label>
           </div>
         </section>
@@ -164,17 +164,17 @@
         <!-- SENSORS --------------------------------------------------- -->
         <section class="page" data-page="sensors">
           <div class="page-header">
-            <h1 class="page-h1">Sensors</h1>
-            <p class="page-lede">Pick which readings to send to the device (up to 20). CPU / RAM / Disk work out of the box; temps, fans, GPU and power need LibreHardwareMonitor.</p>
+            <h1 class="page-h1">Sensores</h1>
+            <p class="page-lede">Escolha quais leituras enviar para o dispositivo (até 20). CPU / RAM / Disco funcionam nativamente; temperaturas, ventoinhas, GPU e consumo exigem o LibreHardwareMonitor.</p>
           </div>
-          <div class="note" id="sourceBanner">Reading sensors...</div>
+          <div class="note" id="sourceBanner">Lendo sensores...</div>
           <div class="card">
-            <h2 class="card-title">Available sensors <span class="tag" id="sensorCount">Selected: 0 / 20</span></h2>
-            <div class="field-label">Selected (sent to device)<span style="text-transform:none;letter-spacing:0;font-weight:400;color:var(--dim)"> &mdash; <b style="color:var(--ok)">green</b> = shown on the device screen, <b style="color:var(--accent-d)">accent</b> = sent but not placed yet</span></div>
+            <h2 class="card-title">Sensores disponíveis <span class="tag" id="sensorCount">Selecionados: 0 / 20</span></h2>
+            <div class="field-label">Selecionados (enviados ao dispositivo)<span style="text-transform:none;letter-spacing:0;font-weight:400;color:var(--dim)"> &mdash; <b style="color:var(--ok)">verde</b> = exibido na tela do dispositivo, <b style="color:var(--accent-d)">destaque</b> = enviado, mas ainda não posicionado</span></div>
             <div class="chip-tray" id="selectedTray"></div>
             <div class="page-actions" style="margin-top:0;margin-bottom:14px">
-              <button type="button" class="btn" id="rescanBtn">↻ Rescan sensors</button>
-              <input type="text" id="sensorSearch" placeholder="Filter sensors..." style="max-width:260px" autocomplete="off">
+              <button type="button" class="btn" id="rescanBtn">↻ Buscar sensores novamente</button>
+              <input type="text" id="sensorSearch" placeholder="Filtrar sensores..." style="max-width:260px" autocomplete="off">
             </div>
             <div class="check-list" id="sensorList"></div>
           </div>
@@ -183,39 +183,39 @@
         <!-- LAYOUT + PREVIEW (the cfgForm) ---------------------------- -->
         <section class="page" data-page="layout">
           <div class="page-header">
-            <h1 class="page-h1">Layout &amp; preview</h1>
-            <p class="page-lede">Drag your selected metrics onto the screen. The preview matches the device 1:1. Click a chip then a slot, or drag. Click a filled slot to clear it.</p>
+            <h1 class="page-h1">Layout e prévia</h1>
+            <p class="page-lede">Arraste as métricas selecionadas para a tela. A prévia reflete o dispositivo 1:1. Clique em um item e depois em um espaço, ou arraste. Clique em um espaço preenchido para limpá-lo.</p>
           </div>
           <div class="page-actions" style="margin-top:0;margin-bottom:18px;flex-wrap:wrap;align-items:center">
-            <div class="select-wrap" style="max-width:210px"><select id="templateSel">
-              <option value="compact">Template: Compact (paired)</option>
-              <option value="bars">Template: Progress bars</option>
-              <option value="big">Template: Large text</option>
-              <option value="everything">Template: One per slot</option>
+            <div class="select-wrap" style="max-width:240px"><select id="templateSel">
+              <option value="compact">Modelo: Compacto (pareado)</option>
+              <option value="bars">Modelo: Barras de progresso</option>
+              <option value="big">Modelo: Texto grande</option>
+              <option value="everything">Modelo: Um por espaço</option>
             </select></div>
-            <button type="button" class="btn" id="applyTemplateBtn">Apply template</button>
-            <button type="button" class="btn" id="pullBtn">Pull layout from device</button>
+            <button type="button" class="btn" id="applyTemplateBtn">Aplicar modelo</button>
+            <button type="button" class="btn" id="pullBtn">Obter layout do dispositivo</button>
             <span class="field-hint" id="pullResult" style="align-self:center"></span>
           </div>
           <form id="cfgForm">
             <div class="card">
-              <h2 class="card-title">Screen layout</h2>
+              <h2 class="card-title">Layout da tela</h2>
               <div class="grid-2">
                 <div class="field">
-                  <label class="field-label" for="rowMode">Row mode</label>
+                  <label class="field-label" for="rowMode">Modo de linhas</label>
                   <div class="select-wrap"><select id="rowMode" name="rowMode">
-                    <option value="0">5 rows x 2 columns</option>
-                    <option value="1">6 rows x 2 columns</option>
-                    <option value="2">Large (2 rows)</option>
-                    <option value="3">Large (3 rows)</option>
+                    <option value="0">5 linhas x 2 colunas</option>
+                    <option value="1">6 linhas x 2 colunas</option>
+                    <option value="2">Grande (2 linhas)</option>
+                    <option value="3">Grande (3 linhas)</option>
                   </select></div>
                 </div>
                 <div class="field">
-                  <label class="field-label" for="clockPosition">Clock position</label>
+                  <label class="field-label" for="clockPosition">Posição do relógio</label>
                   <div class="select-wrap"><select id="clockPosition" name="clockPosition">
-                    <option value="0">Center (own row)</option>
-                    <option value="1">Top-left</option>
-                    <option value="2">Top-right</option>
+                    <option value="0">Centro (linha própria)</option>
+                    <option value="1">Superior esquerdo</option>
+                    <option value="2">Superior direito</option>
                   </select></div>
                 </div>
               </div>
@@ -223,91 +223,93 @@
                 <div>
                   <label class="check-row standalone">
                     <input type="checkbox" id="showClock" name="showClock"><span class="check-box"></span>
-                    <span class="check-text"><strong>Show clock on the stats screen</strong>
-                      <span class="ct-hint">Overlays the time alongside your metrics.</span></span>
+                    <span class="check-text"><strong>Mostrar relógio na tela de estatísticas</strong>
+                      <span class="ct-hint">Sobrepõe a hora junto com as suas métricas.</span></span>
                   </label>
                   <div class="field" style="margin-top:16px;margin-bottom:0">
-                    <label class="field-label" for="clockOffset">Clock horizontal offset (px)</label>
+                    <label class="field-label" for="clockOffset">Deslocamento horizontal do relógio (px)</label>
                     <div class="range-row">
                       <input type="range" id="clockOffset" name="clockOffset" min="-20" max="20" step="1" value="0" data-div="1" data-fixed="0">
                       <span class="range-val" data-for="clockOffset">0</span>
                     </div>
-                    <p class="field-hint">Nudge the clock left/right (only when the clock is shown).</p>
+                    <p class="field-hint">Ajusta o relógio para a esquerda/direita (apenas quando o relógio estiver visível).</p>
                   </div>
                 </div>
                 <div>
-                  <div class="field-label">Number formats</div>
+                  <div class="field-label">Formatos numéricos</div>
                   <label class="check-row standalone">
                     <input type="checkbox" id="netMBFormat" name="netMBFormat"><span class="check-box"></span>
-                    <span class="check-text"><strong>Network speed in MB/s</strong>
-                      <span class="ct-hint">Show network throughput as MB/s instead of KB/s (e.g. 1.2M).</span></span>
+                    <span class="check-text"><strong>Velocidade de rede em MB/s</strong>
+                      <span class="ct-hint">Exibe tráfego de rede em MB/s em vez de KB/s (ex.: 1.2M).</span></span>
                   </label>
                   <label class="check-row standalone" style="margin-top:12px">
                     <input type="checkbox" id="rpmKFormat" name="rpmKFormat"><span class="check-box"></span>
-                    <span class="check-text"><strong>Fan / pump RPM in thousands (K)</strong>
-                      <span class="ct-hint">Show RPM at or above 1000 as e.g. 1.2K to save space.</span></span>
+                    <span class="check-text"><strong>RPM de ventoinha / bomba em milhares (K)</strong>
+                      <span class="ct-hint">Exibe RPM igual ou superior a 1000 como ex.: 1.2K para economizar espaço.</span></span>
                   </label>
                 </div>
               </div>
             </div>
             <div class="card crt oled-preview">
-              <div class="oled-pv-head"><span class="ttl">Live preview</span><span class="meta" id="oledMeta">128x64</span></div>
+              <div class="oled-pv-head"><span class="ttl">Prévia em tempo real</span><span class="meta" id="oledMeta">128x64</span></div>
               <div class="oled-stage" id="oledStage">
                 <canvas id="oledCanvas" width="128" height="64"></canvas>
                 <div class="drop-cells" id="dropCells"></div>
               </div>
             </div>
             <div class="card">
-              <h2 class="card-title">Metrics on screen</h2>
-              <div class="note plain" style="max-width:none"><span class="note-k">Tip</span>Add <code>^</code> to a label to pad it - each <code>^</code> becomes a space that shifts the value right (max 10) to align columns, e.g. <code>CPU^^</code>.</div>
+              <h2 class="card-title">Métricas na tela</h2>
+              <div class="note plain" style="max-width:none"><span class="note-k">Dica</span>Adicione <code>^</code> a um rótulo para espaçá-lo — cada <code>^</code> vira um espaço que desloca o valor para a direita (máx. 10) para alinhar colunas, ex.: <code>CPU^^</code>.</div>
               <div class="chip-tray" id="chipTray"></div>
               <div id="metricsList"></div>
             </div>
           </form>
         </section>
 
-        <!-- BACKUP ---------------------------------------------------- -->
+        <!-- ANIMATIONS ------------------------------------------------ -->
         <section class="page" data-page="animations">
-          <div class="page-header"><h1 class="page-h1">Animations</h1><p class="page-lede">Convert a GIF, preview it at panel resolution, and upload it to your clock.</p></div>
+          <div class="page-header"><h1 class="page-h1">Animações</h1><p class="page-lede">Converta um GIF, veja a prévia na resolução do painel e envie para o seu relógio.</p></div>
           <div class="card">
-            <h2 class="card-title">GIF to panel</h2>
-            <p class="field-hint">Uses the saved device address from Connection. Short clips work on 4MB boards; available storage determines the frame limit.</p>
-            <div class="field"><label class="field-label" for="gifInput">GIF file (up to 8MiB)</label><input type="file" id="gifInput" accept="image/gif,.gif"></div>
+            <h2 class="card-title">GIF para o painel</h2>
+            <p class="field-hint">Usa o endereço do dispositivo salvo em Conexão. Clipes curtos funcionam em placas de 4MB; o armazenamento disponível determina o limite de quadros.</p>
+            <div class="field"><label class="field-label" for="gifInput">Arquivo GIF (até 8MiB)</label><input type="file" id="gifInput" accept="image/gif,.gif"></div>
             <div class="grid-2">
-              <div class="field"><label for="gifFit">Fit</label><select id="gifFit"><option value="crop">Crop to fill</option><option value="pad">Fit with black borders</option><option value="stretch">Stretch</option></select></div>
-              <div class="field"><label for="gifAnchor">Crop anchor</label><select id="gifAnchor"><option value="center">Center</option><option value="start">Top / left</option><option value="end">Bottom / right</option></select></div>
-              <div class="field"><label for="gifColors">Palette colors</label><input type="number" id="gifColors" value="16" min="2" max="16"></div>
-              <div class="field"><label for="gifSkip">Keep every Nth frame</label><input type="number" id="gifSkip" value="1" min="1" max="1000"></div>
+              <div class="field"><label for="gifFit">Ajuste</label><select id="gifFit"><option value="crop">Cortar para preencher</option><option value="pad">Ajustar com bordas pretas</option><option value="stretch">Esticar</option></select></div>
+              <div class="field"><label for="gifAnchor">Âncora de corte</label><select id="gifAnchor"><option value="center">Centro</option><option value="start">Superior / Esquerda</option><option value="end">Inferior / Direita</option></select></div>
+              <div class="field"><label for="gifColors">Cores da paleta</label><input type="number" id="gifColors" value="16" min="2" max="16"></div>
+              <div class="field"><label for="gifSkip">Manter a cada N quadros</label><input type="number" id="gifSkip" value="1" min="1" max="1000"></div>
             </div>
-            <label><input type="checkbox" id="gifAuto" checked> Automatically reduce frames to fit device storage</label>
-            <p class="field-hint">Keeps the loop duration by merging frame delays. Reduced frame counts produce less smooth motion.</p>
-            <p id="gifBudget" class="field-hint">Refresh storage to see your device's capacity.</p>
-            <button type="button" class="btn" id="gifRefresh">Refresh storage</button>
-            <button type="button" class="btn btn-accent" id="gifConvert">Create preview</button>
-            <div style="margin:20px 0"><img id="gifPreview" alt="Converted animation preview" style="max-width:100%;width:512px;image-rendering:pixelated"></div>
-            <div class="field"><label class="field-label" for="gifName">Animation name</label><input type="text" id="gifName" maxlength="24" placeholder="my_animation"></div>
-            <button type="button" class="btn" id="gifUpload" disabled>Upload previewed animation</button>
-            <p id="gifMessage" role="status" class="field-hint">Choose a GIF to begin.</p>
+            <label><input type="checkbox" id="gifAuto" checked> Reduzir quadros automaticamente para caber no armazenamento</label>
+            <p class="field-hint">Mantém a duração total combinando o atraso dos quadros. Menos quadros resultam em um movimento menos suave.</p>
+            <p id="gifBudget" class="field-hint">Atualize o armazenamento para ver a capacidade do dispositivo.</p>
+            <button type="button" class="btn" id="gifRefresh">Atualizar armazenamento</button>
+            <button type="button" class="btn btn-accent" id="gifConvert">Gerar prévia</button>
+            <div style="margin:20px 0"><img id="gifPreview" alt="Prévia da animação convertida" style="max-width:100%;width:512px;image-rendering:pixelated"></div>
+            <div class="field"><label class="field-label" for="gifName">Nome da animação</label><input type="text" id="gifName" maxlength="24" placeholder="minha_animacao"></div>
+            <button type="button" class="btn" id="gifUpload" disabled>Enviar animação gerada</button>
+            <p id="gifMessage" role="status" class="field-hint">Escolha um GIF para começar.</p>
           </div>
-          <div class="card"><h2 class="card-title">On your clock</h2><select id="gifFiles" aria-label="Uploaded animation"></select>
-            <button type="button" class="btn" id="gifPlay">Play selected</button>
-            <button type="button" class="btn" id="gifDelete">Delete selected</button>
-            <p class="field-hint">Use Stop on the device portal's Ambient card to return to normal display.</p>
+          <div class="card"><h2 class="card-title">No seu relógio</h2><select id="gifFiles" aria-label="Animação enviada"></select>
+            <button type="button" class="btn" id="gifPlay">Reproduzir selecionada</button>
+            <button type="button" class="btn" id="gifDelete">Excluir selecionada</button>
+            <p class="field-hint">Use Parar no cartão Ambiente do portal do dispositivo para retornar à exibição normal.</p>
           </div>
         </section>
+
+        <!-- BACKUP ---------------------------------------------------- -->
         <section class="page" data-page="backup">
           <div class="page-header">
-            <h1 class="page-h1">Backup &amp; restore</h1>
-            <p class="page-lede">Export your full configuration (connection, selected metrics, labels and layout) to a JSON file as a backup, or import one to restore/recover it.</p>
+            <h1 class="page-h1">Backup e restauração</h1>
+            <p class="page-lede">Exporte sua configuração completa (conexão, métricas selecionadas, rótulos e layout) para um arquivo JSON como backup, ou importe um para restaurar.</p>
           </div>
           <div class="card">
-            <h2 class="card-title">Configuration file</h2>
+            <h2 class="card-title">Arquivo de configuração</h2>
             <div class="page-actions" style="margin-top:0">
-              <button type="button" class="btn" id="exportBtn"><span class="gl"></span>Export config</button>
-              <button type="button" class="btn" id="importBtn">Import config</button>
+              <button type="button" class="btn" id="exportBtn"><span class="gl"></span>Exportar configuração</button>
+              <button type="button" class="btn" id="importBtn">Importar configuração</button>
               <input type="file" id="importFile" accept="application/json,.json" style="display:none">
             </div>
-            <div class="note plain"><span class="note-k">Note</span>Importing replaces your current selection and layout, then reloads the window.</div>
+            <div class="note plain"><span class="note-k">Aviso</span>A importação substitui sua seleção e layout atuais e recarrega a página.</div>
           </div>
         </section>
 
@@ -317,9 +319,9 @@
 
   <div class="save-bar">
     <div class="save-bar-inner">
-      <div class="save-meta clean" id="saveMeta"><span class="dot"></span><span class="txt">All saved</span></div>
-      <button type="button" class="btn btn-lg" id="revertBtn">Revert unsaved</button>
-      <button type="submit" form="cfgForm" class="btn btn-accent btn-lg" id="saveBtn"><span class="gl"></span>Save &amp; push to device</button>
+      <div class="save-meta clean" id="saveMeta"><span class="dot"></span><span class="txt">Tudo salvo</span></div>
+      <button type="button" class="btn btn-lg" id="revertBtn">Descartar alterações</button>
+      <button type="submit" form="cfgForm" class="btn btn-accent btn-lg" id="saveBtn"><span class="gl"></span>Salvar e enviar ao dispositivo</button>
     </div>
   </div>
 </div>

@@ -3539,8 +3539,8 @@ def run_minimized(config, notify_startup=False):
         create_tray_icon(),
         "PC Monitor",
         menu=pystray.Menu(
-            pystray.MenuItem("Configure", on_show_config),
-            pystray.MenuItem("Quit", on_quit)
+            pystray.MenuItem("Configurar", on_show_config),
+            pystray.MenuItem("Sair", on_quit)
         )
     )
 
@@ -3555,9 +3555,9 @@ def run_minimized(config, notify_startup=False):
         if notify_startup:
             try:
                 icon.notify(
-                    "Monitoring your PC in the background. Right-click this icon "
-                    "to reconfigure or quit.",
-                    "PC Monitor is running"
+                    "Monitorando o PC em segundo plano. Clique com o botão direito "
+                    "para configurar ou sair.",
+                    "PC Monitor em execução"
                 )
             except Exception:
                 pass
@@ -3817,10 +3817,10 @@ def source_text():
     """Short description of the active hardware-sensor source (status readout)."""
     hw = sum(len(v) for k, v in sensor_database.items() if k != "system")
     if hw > 0:
-        return ("REST API" if use_rest_api else "WMI") + " (%d sensors)" % hw
+        return ("REST API" if use_rest_api else "WMI") + " (%d sensores)" % hw
     if not is_lhm_process_running():
-        return "psutil only (LHM off)"
-    return "psutil only (no sensors)"
+        return "apenas psutil (LHM fechado)"
+    return "apenas psutil (sem sensores)"
 
 
 def source_banner():
@@ -3828,10 +3828,10 @@ def source_banner():
     hw = sum(len(v) for k, v in sensor_database.items() if k != "system")
     if hw > 0:
         src = "REST API" if use_rest_api else "WMI"
-        return {"level": "ok", "text": "LibreHardwareMonitor connected via %s - %d hardware sensors available." % (src, hw)}
+        return {"level": "ok", "text": "LibreHardwareMonitor conectado via %s - %d sensores de hardware disponíveis." % (src, hw)}
     if not is_lhm_process_running():
-        return {"level": "err", "text": "LibreHardwareMonitor is not running. Only CPU / RAM / Disk are available. Start it (as Administrator), then Rescan."}
-    return {"level": "warn", "text": "LibreHardwareMonitor is running but exposes no sensors. Enable Options - Remote Web Server - Run, then Rescan."}
+        return {"level": "err", "text": "LibreHardwareMonitor não está em execução. Apenas CPU / RAM / Disco estão disponíveis. Inicie-o (como Administrador) e clique em Buscar novamente."}
+    return {"level": "warn", "text": "LibreHardwareMonitor está em execução, mas não expõe sensores. Ative Options -> Remote Web Server -> Run e clique em Buscar novamente."}
 
 
 def ensure_discovered(rescan=False):

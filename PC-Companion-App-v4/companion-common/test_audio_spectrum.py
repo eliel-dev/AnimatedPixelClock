@@ -157,7 +157,7 @@ class StreamTimingTests(unittest.TestCase):
             self.stream._send_bands(self.bands)
         flat = bytes([128]) * audio.WAVE_POINTS
         self.stream._sock.sendto.assert_called_once_with(
-            b"FFT1" + bytes(32) + flat, ("192.0.2.1", 4210))
+            b"FFT2" + bytes(audio.BANDS) + flat, ("192.0.2.1", 4210))
 
     def test_packet_carries_bands_then_waveform(self):
         self.stream._target = ("192.0.2.1", 4210)
@@ -165,8 +165,49 @@ class StreamTimingTests(unittest.TestCase):
         self.stream._send_bands(self.bands, wave)
         packet = self.stream._sock.sendto.call_args[0][0]
         self.assertEqual(len(packet), 4 + audio.BANDS + audio.WAVE_POINTS)
-        self.assertEqual(packet[:4], b"FFT1")
+        self.assertEqual(packet[:4], b"FFT2")
         self.assertEqual(packet[4 + audio.BANDS:], wave.tobytes())
+
+    def test_mica_resample_preserves_endpoints_and_interpolates(self):
+        source = audio.np.zeros(42, dtype=audio.np.uint8)
+        source[0], source[-1], source[1] = 10, 250, 110
+        bins = audio.resample_audio_motion_bands(source)
+        self.assertEqual(len(bins), 128)
+        self.assertEqual(int(bins[0]), 10)
+        self.assertEqual(int(bins[-1]), 250)
+        # Column 3 maps to source position 3 * 41 / 127 = 0.968...
+        self.assertEqual(int(bins[3]), 107)
+
+    def test_mica_resample_handles_silence_and_full_scale(self):
+        self.assertTrue(bool((audio.resample_audio_motion_bands(
+            audio.np.zeros(42)) == 0).all()))
+        self.assertTrue(bool((audio.resample_audio_motion_bands(
+            audio.np.full(42, 255)) == 255).all()))
+
+    def test_mica_resample_linear_ramp(self):
+        source = audio.np.linspace(0, 255, 42, dtype=audio.np.float32)
+        bins = audio.resample_audio_motion_bands(source)
+        self.assertEqual(len(bins), 128)
+        self.assertEqual(bins[0], 0)
+        self.assertEqual(bins[-1], 255)
+        # Verify strictly non-decreasing ramp across all 128 columns
+        diffs = audio.np.diff(bins.astype(int))
+        self.assertTrue(bool((diffs >= 0).all()))
+
+    def test_mica_resample_isolated_peaks(self):
+        source = audio.np.zeros(42, dtype=audio.np.uint8)
+        source[20] = 250  # peak near the middle (band 20 of 0..41)
+        bins = audio.resample_audio_motion_bands(source)
+        self.assertEqual(len(bins), 128)
+        # Peak column is round(20 * 127 / 41) = round(61.951) = 62
+        peak_idx = int(audio.np.argmax(bins))
+        self.assertIn(peak_idx, (61, 62, 63))
+        self.assertGreater(int(bins[peak_idx]), 200)
+        # Far-off columns remain silent (0)
+        self.assertEqual(int(bins[0]), 0)
+        self.assertEqual(int(bins[-1]), 0)
+        self.assertEqual(int(bins[30]), 0)
+        self.assertEqual(int(bins[100]), 0)
 
     def test_waveform_triggers_on_a_rising_zero_crossing(self):
         # Two blocks of the same tone at different phases must yield the same
@@ -380,6 +421,146 @@ class StreamTimingTests(unittest.TestCase):
         self.check_device(100, 50)
         self.check_device(200, 3)
         self.assertIsNone(self.stream._mode_pending)
+
+
+class MicaDspTests(unittest.TestCase):
+    """Tests for the ported Mica Audio DSP pipeline components."""
+
+    # --- B-weighting ---
+    def test_b_weighting_dc_bin_is_unity(self):
+        m = audio.build_b_weighting_multipliers(2048, 48000)
+        self.assertAlmostEqual(float(m[0]), 1.0)
+
+    def test_b_weighting_multipliers_length(self):
+        m = audio.build_b_weighting_multipliers(2048, 48000)
+        self.assertEqual(len(m), 1025)  # FFT_N//2 + 1
+
+    def test_b_weighting_positive_values(self):
+        m = audio.build_b_weighting_multipliers(2048, 48000)
+        self.assertTrue(bool((m > 0).all()))
+
+    def test_b_weighting_boosts_midrange_over_infra(self):
+        m = audio.build_b_weighting_multipliers(2048, 48000)
+        # 1 kHz bin ≈ bin 43  vs  20 Hz bin ≈ bin 1
+        self.assertGreater(float(m[43]), float(m[1]))
+
+    # --- Bark scale ---
+    def test_bark_roundtrip(self):
+        for hz in (20, 100, 440, 1000, 8000, 16000):
+            got = audio.from_bark(audio.to_bark(float(hz)))
+            self.assertAlmostEqual(got, float(hz), delta=0.1)
+
+    def test_bark_monotonic(self):
+        prev = audio.to_bark(20.0)
+        for f in range(50, 20001, 50):
+            b = audio.to_bark(float(f))
+            self.assertGreater(b, prev)
+            prev = b
+
+    # --- AudioMotion mode 0 layout ---
+    def test_mode0_default_layout_has_one_range_per_usable_fft_bin(self):
+        bands = audio.build_mode0_band_ranges(2048, 48000, 20, 1000, 1600)
+        self.assertEqual(len(bands), 42)
+        self.assertEqual(bands[0], (1, 2))
+        self.assertEqual(bands[-1], (42, 43))
+
+    def test_mode0_ranges_are_monotonic_and_nonempty(self):
+        bands = audio.build_mode0_band_ranges(2048, 48000, 20, 1000, 1600)
+        for i in range(1, len(bands)):
+            self.assertGreaterEqual(bands[i][0], bands[i - 1][1])
+        for lo, hi in bands:
+            self.assertGreater(hi, lo)
+
+    def test_mode0_narrow_viewport_merges_adjacent_bins(self):
+        wide = audio.build_mode0_band_ranges(2048, 48000, 20, 1000, 1600)
+        narrow = audio.build_mode0_band_ranges(2048, 48000, 20, 1000, 8)
+        self.assertLess(len(narrow), len(wide))
+        self.assertEqual(narrow[0][0], 1)
+        self.assertEqual(narrow[-1][1], 43)
+
+    # --- EnvelopeSmoother ---
+    def test_smoother_attack_is_fast(self):
+        s = audio.EnvelopeSmoother(1, rise=0.82, fall=0.06, damping=0.30)
+        spike = audio.np.array([1.0], dtype=audio.np.float32)
+        out = s.process(spike)
+        self.assertGreater(float(out[0]), 0.15, "First step should track upward rapidly")
+
+    def test_smoother_decay_is_slow(self):
+        s = audio.EnvelopeSmoother(1, rise=0.82, fall=0.06, damping=0.30)
+        spike = audio.np.array([1.0], dtype=audio.np.float32)
+        # Pump to saturation
+        for _ in range(30):
+            s.process(spike)
+        silence = audio.np.array([0.0], dtype=audio.np.float32)
+        after1 = float(s.process(silence)[0])
+        self.assertGreater(after1, 0.5, "Decay should be gradual")
+
+    def test_smoother_reset(self):
+        s = audio.EnvelopeSmoother(4, rise=0.82, fall=0.06, damping=0.30)
+        s.process(audio.np.ones(4, dtype=audio.np.float32))
+        s.reset()
+        self.assertTrue(bool((s.target_state == 0).all()))
+        self.assertTrue(bool((s.smoothed_state == 0).all()))
+
+    def test_smoother_damping_smooths_steps(self):
+        s = audio.EnvelopeSmoother(1, rise=1.0, fall=1.0, damping=0.30)
+        out1 = float(s.process(audio.np.array([1.0]))[0])
+        out2 = float(s.process(audio.np.array([1.0]))[0])
+        self.assertLess(out1, out2, "Damping means second step is closer to 1.0")
+
+    # --- Linear normalization ---
+    def test_normalization_floor_maps_to_zero(self):
+        amp_floor = 10.0 ** (audio.DB_FLOOR / 20.0)
+        norm = max(0.0, min(1.0, (amp_floor - amp_floor) / (10.0 ** (audio.DB_CEILING / 20.0) - amp_floor) * audio.LINEAR_BOOST))
+        self.assertAlmostEqual(norm, 0.0)
+
+    def test_normalization_ceiling_exceeds_one(self):
+        amp_floor = 10.0 ** (audio.DB_FLOOR / 20.0)
+        amp_ceil = 10.0 ** (audio.DB_CEILING / 20.0)
+        # At exactly the ceiling, norm = 1.0 * LINEAR_BOOST = 1.3, clipped to 1.0
+        raw = (amp_ceil - amp_floor) / (amp_ceil - amp_floor) * audio.LINEAR_BOOST
+        self.assertGreater(raw, 1.0, "LINEAR_BOOST pushes ceiling above 1.0 before clip")
+
+    # --- Full pipeline integration ---
+    def test_process_block_returns_128_bytes(self):
+        s = audio.SpectrumStreamer("127.0.0.1", 4210)
+        mono = audio.np.zeros(audio.FRAMES, dtype=audio.np.float32)
+        result = s._process_block(mono)
+        self.assertEqual(len(result), 128)
+        self.assertEqual(result.dtype, audio.np.uint8)
+
+    def test_process_block_silence_is_zeros(self):
+        s = audio.SpectrumStreamer("127.0.0.1", 4210)
+        mono = audio.np.zeros(audio.FRAMES, dtype=audio.np.float32)
+        result = s._process_block(mono)
+        self.assertTrue(bool((result == 0).all()))
+
+    def test_process_block_loud_tone_nonzero(self):
+        s = audio.SpectrumStreamer("127.0.0.1", 4210)
+        t = audio.np.arange(audio.FRAMES, dtype=audio.np.float32) / audio.RATE
+        mono = 0.5 * audio.np.sin(2 * audio.np.pi * 440.0 * t).astype(audio.np.float32)
+        self.assertTrue(bool((s._process_block(mono) == 0).all()))  # FFT warm-up
+        result = s._process_block(mono)
+        self.assertGreater(int(result.max()), 0, "440 Hz tone should light up some columns")
+
+    def test_process_block_runs_all_available_256_sample_hops(self):
+        s = audio.SpectrumStreamer("127.0.0.1", 4210)
+        block = audio.np.zeros(audio.FRAMES, dtype=audio.np.float32)
+        s._process_block(block)  # 1920 samples: below the first 2048-sample FFT
+        with patch.object(s, "_analyse_window", wraps=s._analyse_window) as analyse:
+            s._process_block(block)
+        # 3840 samples contain windows at offsets 0, 256, ..., 1792.
+        self.assertEqual(analyse.call_count, 8)
+
+    def test_fft_smoothing_keeps_75_percent_of_the_previous_power(self):
+        s = audio.SpectrumStreamer("127.0.0.1", 4210)
+        t = audio.np.arange(audio.FFT_N, dtype=audio.np.float32) / audio.RATE
+        tone = 0.5 * audio.np.sin(2 * audio.np.pi * 440.0 * t).astype(audio.np.float32)
+        s._analyse_window(tone)
+        previous = s._smoothed_power.copy()
+        s._analyse_window(audio.np.zeros(audio.FFT_N, dtype=audio.np.float32))
+        self.assertTrue(bool(audio.np.allclose(
+            s._smoothed_power, previous * audio.FFT_SMOOTHING, rtol=1e-5, atol=1e-9)))
 
 
 if __name__ == "__main__":

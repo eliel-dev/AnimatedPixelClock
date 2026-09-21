@@ -45,8 +45,8 @@ try { localStorage.setItem('soled_mode', mode); } catch (e) {}
 modeBtns.forEach(function (b) { b.addEventListener('click', function () { setMode(b.dataset.mode); }); });
 try { var m = localStorage.getItem('soled_mode'); if (m) setMode(m); } catch (e) {}
 var saveMeta = $('#saveMeta');
-function markDirty() { if (saveMeta) { saveMeta.classList.remove('clean'); $('.txt', saveMeta).textContent = 'Unsaved changes'; } }
-function markClean(txt) { if (saveMeta) { saveMeta.classList.add('clean'); $('.txt', saveMeta).textContent = txt || 'All saved'; } }
+function markDirty() { if (saveMeta) { saveMeta.classList.remove('clean'); $('.txt', saveMeta).textContent = 'Alterações não salvas'; } }
+function markClean(txt) { if (saveMeta) { saveMeta.classList.add('clean'); $('.txt', saveMeta).textContent = txt || 'Tudo salvo'; } }
 var form = $('#cfgForm');
 form.addEventListener('input', markDirty);
 form.addEventListener('change', markDirty);
@@ -213,7 +213,7 @@ var ee = slotText(pos); if (ee) drawText(cx, yy, ee, 1, true, false);
 }
 blit(fb);
 var g = rowGeom();
-$('#oledMeta').textContent = '128x64 - ' + g.rows + ' rows - ' + (g.cols === 1 ? 'single column' : '2 columns');
+$('#oledMeta').textContent = '128x64 · ' + g.rows + ' linhas · ' + (g.cols === 1 ? 'coluna única' : '2 colunas');
 }
 function blit(fb) {
 var canvas = $('#oledCanvas'); if (!canvas) return;
@@ -258,7 +258,7 @@ var h = Math.min(g.h, 64 - g.y); if (h <= 0) continue;
 var cell = document.createElement('div');
 var occ = metricsData.filter(function (m) { return m.position === s; })[0];
 cell.className = 'drop-cell' + (occ ? ' filled' : ''); cell.dataset.slot = s;
-if (occ) cell.title = 'Click to remove ' + occ.name + ' from the screen';
+if (occ) cell.title = 'Clique para remover ' + occ.name + ' da tela';
 cell.style.left = (g.x / 128 * 100) + '%'; cell.style.top = (g.y / 64 * 100) + '%';
 cell.style.width = (g.w / 128 * 100) + '%'; cell.style.height = (h / 64 * 100) + '%';
 attachDrop(cell, s);
@@ -290,14 +290,14 @@ var tray = $('#chipTray'); if (tray) tray.classList.toggle('placing', id != null
 buildChipTray();
 }
 function slotLabel(pos, g) {
-if (pos === 255 || pos == null) return 'Hidden';
-if (g.large) return 'R' + (pos + 1);
-return 'R' + (Math.floor(pos / 2) + 1) + (pos % 2 === 0 ? '·L' : '·R');
+if (pos === 255 || pos == null) return 'Oculto';
+if (g.large) return 'L' + (pos + 1);
+return 'L' + (Math.floor(pos / 2) + 1) + (pos % 2 === 0 ? '·E' : '·D');
 }
 function buildChipTray() {
 var host = $('#chipTray'); if (!host) return;
 host.innerHTML = '';
-if (!metricsData.length) { host.innerHTML = '<span class="chip-empty">No metrics yet - start the companion app on your PC.</span>'; return; }
+if (!metricsData.length) { host.innerHTML = '<span class="chip-empty">Nenhuma métrica ainda - inicie o Companion App no seu PC.</span>'; return; }
 var g = rowGeom();
 var sorted = metricsData.slice().sort(function (a, b) { return a.displayOrder - b.displayOrder; });
 sorted.forEach(function (mt) {
@@ -354,7 +354,7 @@ return (mt.position !== 255 && mt.position >= maxPos) || (mt.barPosition !== 255
 });
 if (hidden.length > 0) {
 var names = hidden.map(function (mt) { return mt.name; }).join(', ');
-if (!confirm('Warning: ' + hidden.length + ' metric(s) (' + names + ') will be hidden in this row mode. Continue?')) { return; }
+if (!confirm('Aviso: ' + hidden.length + ' métrica(s) (' + names + ') ficarão ocultas neste modo de linhas. Continuar?')) { return; }
 metricsData.forEach(function (mt) {
 if (mt.position !== 255 && mt.position >= maxPos) mt.position = 255;
 if (mt.barPosition !== 255 && mt.barPosition >= maxPos) mt.barPosition = 255;
@@ -363,14 +363,14 @@ if (mt.barPosition !== 255 && mt.barPosition >= maxPos) mt.barPosition = 255;
 renderMetrics(); buildDropCells(); buildChipTray(); renderFrame();
 }
 function posOptionsHtml(cur, g, includeNoneLabel) {
-var html = '<option value="255">' + (includeNoneLabel || 'None (hidden)') + '</option>';
+var html = '<option value="255">' + (includeNoneLabel || 'Nenhum (oculto)') + '</option>';
 for (var r = 0; r < g.rows; r++) {
 if (g.large) {
-html += '<option value="' + r + '"' + (cur === r ? ' selected' : '') + '>Row ' + (r + 1) + '</option>';
+html += '<option value="' + r + '"' + (cur === r ? ' selected' : '') + '>Linha ' + (r + 1) + '</option>';
 } else {
 var lp = r * 2, rp = r * 2 + 1;
-html += '<option value="' + lp + '"' + (cur === lp ? ' selected' : '') + '>Row ' + (r + 1) + ' &middot; Left</option>';
-html += '<option value="' + rp + '"' + (cur === rp ? ' selected' : '') + '>Row ' + (r + 1) + ' &middot; Right</option>';
+html += '<option value="' + lp + '"' + (cur === lp ? ' selected' : '') + '>Linha ' + (r + 1) + ' &middot; Esquerda</option>';
+html += '<option value="' + rp + '"' + (cur === rp ? ' selected' : '') + '>Linha ' + (r + 1) + ' &middot; Direita</option>';
 }
 }
 return html;
@@ -398,11 +398,11 @@ var g = rowGeom();
 var list = $('#metricsList');
 var openIds = {}; Array.prototype.forEach.call(list.querySelectorAll('details.metric-row[open]'), function (d) { openIds[d.dataset.id] = 1; });
 list.innerHTML = '';
-if (!metricsData.length) { list.innerHTML = '<p class="field-hint">No metrics received yet. Start the companion app on your PC.</p>'; return; }
+if (!metricsData.length) { list.innerHTML = '<p class="field-hint">Nenhuma métrica recebida ainda. Inicie o Companion App no seu PC.</p>'; return; }
 var sorted = metricsData.slice().sort(function (a, b) { return a.displayOrder - b.displayOrder; });
 sorted.forEach(function (mt) {
 var compName = mt.companionId > 0 ? (metricsData.filter(function (x) { return x.id === mt.companionId; })[0] || {}).name : null;
-var compOpts = '<option value="0">None</option>';
+var compOpts = '<option value="0">Nenhum</option>';
 metricsData.forEach(function (x) {
 if (x.id !== mt.id) compOpts += '<option value="' + x.id + '"' + (mt.companionId === x.id ? ' selected' : '') + '>' + esc(x.name) + ' (' + esc(x.unit) + ')</option>';
 });
@@ -418,14 +418,14 @@ row.innerHTML =
 '<span class="ms-sub">' + esc(mt.unit) + (compName ? ' · + ' + esc(compName) : '') + '</span></span>' +
 '<span class="ms-badge">' + slotLabel(mt.position, g) + '</span><span class="ms-chev"></span></summary>' +
 '<div class="metric-body"><div class="metric-adv">' +
-'<div><label class="field-label">Custom label (10 max)</label><input type="text" name="label_' + mt.id + '" value="' + esc(mt.label) + '" maxlength="10" placeholder="' + esc(mt.name) + '"></div>' +
-'<div><label class="field-label">Pair with</label><div class="select-wrap"><select id="comp_' + mt.id + '" name="companion_' + mt.id + '">' + compOpts + '</select></div></div>' +
-'<div class="full"><label class="field-label">Progress bar position</label><div class="select-wrap"><select id="barPos_' + mt.id + '" name="barPosition_' + mt.id + '">' + posOptionsHtml(mt.barPosition, g, 'None') + '</select></div></div>' +
+'<div><label class="field-label">Rótulo personalizado (máx. 10)</label><input type="text" name="label_' + mt.id + '" value="' + esc(mt.label) + '" maxlength="10" placeholder="' + esc(mt.name) + '"></div>' +
+'<div><label class="field-label">Parear com</label><div class="select-wrap"><select id="comp_' + mt.id + '" name="companion_' + mt.id + '">' + compOpts + '</select></div></div>' +
+'<div class="full"><label class="field-label">Posição da barra de progresso</label><div class="select-wrap"><select id="barPos_' + mt.id + '" name="barPosition_' + mt.id + '">' + posOptionsHtml(mt.barPosition, g, 'Nenhum') + '</select></div></div>' +
 '<div class="bar-opts" id="barOpts_' + mt.id + '" style="display:' + ((mt.barPosition !== 255 && mt.barPosition != null) ? 'contents' : 'none') + '">' +
-barField('Bar min', 'barMin_' + mt.id, (mt.barMin || 0), vr[0], vr[1], vr[2], false) +
-barField('Bar max', 'barMax_' + mt.id, (mt.barMax == null ? 100 : mt.barMax), vr[0], vr[1], vr[2], false) +
-barField('Bar width (px)', 'barWidth_' + mt.id, (mt.barWidth || 60), 10, 64, 1, true) +
-barField('Bar offset X (px)', 'barOffset_' + mt.id, (mt.barOffsetX || 0), 0, 54, 1, true) +
+barField('Mínimo da barra', 'barMin_' + mt.id, (mt.barMin || 0), vr[0], vr[1], vr[2], false) +
+barField('Máximo da barra', 'barMax_' + mt.id, (mt.barMax == null ? 100 : mt.barMax), vr[0], vr[1], vr[2], false) +
+barField('Largura da barra (px)', 'barWidth_' + mt.id, (mt.barWidth || 60), 10, 64, 1, true) +
+barField('Deslocamento X da barra (px)', 'barOffset_' + mt.id, (mt.barOffsetX || 0), 0, 54, 1, true) +
 '</div>' +
 '</div></div>' +
 '<input type="hidden" name="order_' + mt.id + '" value="' + mt.displayOrder + '">' +
@@ -479,7 +479,7 @@ renderFrame();
 function reloadMetrics(initial) {
 return fetch('/metrics').then(function (r) { return r.json(); })
 .then(function (data) { applyMetrics(data, true, !!initial); })
-.catch(function () { var l = $('#metricsList'); if (l) l.innerHTML = '<p class="field-hint">Could not load metrics.</p>'; });
+.catch(function () { var l = $('#metricsList'); if (l) l.innerHTML = '<p class="field-hint">Não foi possível carregar as métricas.</p>'; });
 }
 function pollMetrics() {
 fetch('/metrics').then(function (r) { return r.json(); })
@@ -494,14 +494,14 @@ form.addEventListener('submit', function (e) {
 e.preventDefault();
 saveFormState();
 var btn = $('#saveBtn'); var orig = btn.textContent;
-btn.disabled = true; btn.textContent = 'Saving...';
+btn.disabled = true; btn.textContent = 'Salvando...';
 function done() { btn.disabled = false; btn.textContent = orig; }
 saveConnection().then(function (c) {
 if (!c.success) {
 // Show the complaint next to the field that caused it, not on whichever
 // page the save was triggered from.
 done(); showPage('connection');
-setConnResult(c.message || 'Could not save connection settings.', false);
+setConnResult(c.message || 'Não foi possível salvar as configurações de conexão.', false);
 return null;
 }
 setConnResult(connectionSavedText(c), true); refreshStatus();
@@ -512,14 +512,14 @@ return fetch('/save', { method: 'POST', headers: { 'Content-Type': 'application/
 if (!d) return;
 done();
 if (d.success) {
-markClean('Saved');
+markClean('Salvo');
 if (d.networkChanged) {
-alert('Network settings changed. The device is restarting - you may need to reconnect at the new IP address.');
+alert('Configurações de rede alteradas. O dispositivo está reiniciando - pode ser necessário reconectar no novo endereço IP.');
 setTimeout(function () { window.location.href = '/'; }, 3000);
 }
-} else { alert('Error saving settings.'); }
+} else { alert('Erro ao salvar configurações.'); }
 })
-.catch(function (err) { done(); alert('Error saving settings: ' + err); });
+.catch(function (err) { done(); alert('Erro ao salvar configurações: ' + err); });
 });
 // pywebview bridge (present only inside the native window); browser uses fallbacks.
 function nativeApi() { return (window.pywebview && window.pywebview.api) ? window.pywebview.api : null; }
@@ -537,29 +537,29 @@ var api = nativeApi();
 // save dialog when running in the pywebview window.
 if (api && api.save_text) {
 api.save_text(text, 'pcmonitor-config.json').then(function (r) {
-if (r && r.ok) markClean('Exported to ' + r.path);
-else if (r && r.error) alert('Could not save: ' + r.error);
+if (r && r.ok) markClean('Exportado para ' + r.path);
+else if (r && r.error) alert('Não foi possível salvar: ' + r.error);
 });
 } else {
 browserDownload(text, 'pcmonitor-config.json');
 }
-}).catch(function (err) { alert('Error exporting configuration: ' + err); });
+}).catch(function (err) { alert('Erro ao exportar configuração: ' + err); });
 });
 function doImport(cfgText) {
 var cfg;
-try { cfg = JSON.parse(cfgText); } catch (err) { alert('Invalid configuration file: ' + err); return; }
+try { cfg = JSON.parse(cfgText); } catch (err) { alert('Arquivo de configuração inválido: ' + err); return; }
 fetch('/api/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cfg) })
 .then(function (r) { return r.json(); })
 .then(function (d) {
-if (d.success) { alert('Configuration imported. Reloading...'); location.reload(); }
-else { alert('Error importing configuration: ' + d.message); }
+if (d.success) { alert('Configuração importada. Recarregando...'); location.reload(); }
+else { alert('Erro ao importar configuração: ' + d.message); }
 })
-.catch(function (err) { alert('Error importing configuration: ' + err); });
+.catch(function (err) { alert('Erro ao importar configuração: ' + err); });
 }
 $('#importBtn').addEventListener('click', function () {
 var api = nativeApi();
 if (api && api.open_text) {
-api.open_text().then(function (r) { if (r && r.ok) doImport(r.text); else if (r && r.error) alert('Could not open: ' + r.error); });
+api.open_text().then(function (r) { if (r && r.ok) doImport(r.text); else if (r && r.error) alert('Não foi possível abrir: ' + r.error); });
 } else { $('#importFile').click(); }
 });
 $('#importFile').addEventListener('change', function (ev) {
@@ -571,22 +571,22 @@ reader.readAsText(file);
 // ---- PC companion: revert unsaved changes -------------------------------
 var revertBtn = $('#revertBtn');
 if (revertBtn) revertBtn.addEventListener('click', function () {
-if (!confirm('Discard unsaved changes and reload the last saved configuration?')) return;
+if (!confirm('Descartar alterações não salvas e recarregar a última configuração salva?')) return;
 fetch('/api/revert', { method: 'POST' }).then(function (r) { return r.json(); }).then(function (d) {
-if (d.success) reloadMetrics(true).then(function () { loadSensors(false); hydrateConnection(); markClean('Reverted to saved'); refreshStatus(); });
-}).catch(function (err) { alert('Revert failed: ' + err); });
+if (d.success) reloadMetrics(true).then(function () { loadSensors(false); hydrateConnection(); markClean('Revertido para o salvo'); refreshStatus(); });
+}).catch(function (err) { alert('Falha ao reverter: ' + err); });
 });
 
 // ---- PC companion: pull layout from device ------------------------------
 var pullBtn = $('#pullBtn');
 if (pullBtn) pullBtn.addEventListener('click', function () {
-var orig = pullBtn.textContent; pullBtn.disabled = true; pullBtn.textContent = 'Pulling...';
+var orig = pullBtn.textContent; pullBtn.disabled = true; pullBtn.textContent = 'Obtendo...';
 var res = $('#pullResult'); if (res) res.textContent = '';
 fetch('/api/pull', { method: 'POST' }).then(function (r) { return r.json(); }).then(function (d) {
 pullBtn.disabled = false; pullBtn.textContent = orig;
 if (res) res.textContent = d.message || '';
-if (d.success) reloadMetrics(true).then(function () { markClean('Pulled from device'); });
-}).catch(function (err) { pullBtn.disabled = false; pullBtn.textContent = orig; if (res) res.textContent = 'Error: ' + err; });
+if (d.success) reloadMetrics(true).then(function () { markClean('Obtido do dispositivo'); });
+}).catch(function (err) { pullBtn.disabled = false; pullBtn.textContent = orig; if (res) res.textContent = 'Erro: ' + err; });
 });
 
 // ---- PC companion: quick layout templates -------------------------------
@@ -600,7 +600,7 @@ fetch('/api/template', { method: 'POST', headers: { 'Content-Type': 'application
 applyTemplateBtn.disabled = false;
 if (d.success) reloadMetrics(true).then(function () { markDirty(); });
 var res = $('#pullResult'); if (res) res.textContent = d.message || '';
-}).catch(function (err) { applyTemplateBtn.disabled = false; var res = $('#pullResult'); if (res) res.textContent = 'Error: ' + err; });
+}).catch(function (err) { applyTemplateBtn.disabled = false; var res = $('#pullResult'); if (res) res.textContent = 'Erro: ' + err; });
 });
 
 // ---- PC companion: status readout (sidebar CRT panel) -------------------
@@ -609,25 +609,25 @@ function refreshStatus() {
 fetch('/api/status').then(function (r) { return r.json(); }).then(function (d) {
 var led = $('#srLed'), title = $('#srTitle');
 if (led) { led.classList.toggle('online', !!d.deviceReachable); led.classList.toggle('offline', !d.deviceReachable); }
-if (title) title.textContent = (d.deviceReachable ? 'Device online' : 'Device offline') + ' · ' + (d.monitoring ? 'sending' : 'idle');
+if (title) title.textContent = (d.deviceReachable ? 'Dispositivo online' : 'Dispositivo offline') + ' · ' + (d.monitoring ? 'enviando' : 'ocioso');
 setText('srDevice', d.deviceIp || '-');
 setText('srSource', d.source || '-');
-setText('srCount', (d.metricCount || 0) + ' metric' + (d.metricCount === 1 ? '' : 's'));
+setText('srCount', (d.metricCount || 0) + (d.metricCount === 1 ? ' métrica' : ' métricas'));
 var avChk = $('#audio_viz'), avState = $('#audioVizState');
 if (avChk && !avHydrated && d.audioVizEnabled !== undefined) { avChk.checked = !!d.audioVizEnabled; avHydrated = true; }
 if (avState && d.audioVizAvailable !== undefined) {
-if (!d.audioVizAvailable) avState.textContent = 'Not available: install the audio packages first (pip install soundcard numpy).';
-else if (d.audioVizEnabled) avState.textContent = d.audioVizSending ? 'Streaming the sound spectrum to the display.' : 'Enabled - waiting for audio playback...';
+if (!d.audioVizAvailable) avState.textContent = 'Indisponível: instale primeiro os pacotes de áudio (pip install soundcard numpy).';
+else if (d.audioVizEnabled) avState.textContent = d.audioVizSending ? 'Transmitindo o espectro de som para o display.' : 'Ativado - aguardando reprodução de áudio...';
 else avState.textContent = '';
 }
 var aaState = $('#audioVizAutoState');
 if (aaState && d.audioVizAvailable !== undefined) {
 if (!d.audioVizAvailable) aaState.textContent = '';
-else if (!d.audioVizEnabled) aaState.textContent = 'Turn on the stream above to use auto-start.';
-else if (!d.audioVizAuto) aaState.textContent = 'Auto-start off - switch the display from its Display page.';
-else aaState.textContent = (d.audioVizForced ? 'Visualizer running (started by playback). ' : 'Waiting for playback. ')
-+ 'Current level: ' + (d.audioVizLevel != null ? d.audioVizLevel : '?') + ' dB.'
-+ (d.audioVizAutoError ? ' Last switch failed: ' + d.audioVizAutoError : '');
+else if (!d.audioVizEnabled) aaState.textContent = 'Ative a transmissão acima para usar o início automático.';
+else if (!d.audioVizAuto) aaState.textContent = 'Início automático desativado - alterne o display na página Tela.';
+else aaState.textContent = (d.audioVizForced ? 'Visualizador em execução (iniciado pela música). ' : 'Aguardando áudio. ')
++ 'Nível atual: ' + (d.audioVizLevel != null ? d.audioVizLevel : '?') + ' dB.'
++ (d.audioVizAutoError ? ' Falha na última troca: ' + d.audioVizAutoError : '');
 }
 }).catch(function () {});
 }
@@ -671,25 +671,25 @@ return fetch('/api/connection', { method: 'POST', headers: { 'Content-Type': 'ap
 .then(function (r) { return r.json(); });
 }
 function connectionSavedText(d) {
-return 'Saved. Device set to ' + d.esp32_ip + ':' + d.udp_port + ', every ' + d.update_interval + 's.';
+return 'Salvo. Dispositivo definido para ' + d.esp32_ip + ':' + d.udp_port + ', a cada ' + d.update_interval + 's.';
 }
 var testConnBtn = $('#testConnBtn');
 if (testConnBtn) testConnBtn.addEventListener('click', function () {
 var ip = ($('#esp32_ip') || {}).value || '';
-if (!ip) { setConnResult('Enter the device IP first.', false); return; }
-var orig = testConnBtn.textContent; testConnBtn.disabled = true; testConnBtn.textContent = 'Testing...';
+if (!ip) { setConnResult('Informe o IP do dispositivo primeiro.', false); return; }
+var orig = testConnBtn.textContent; testConnBtn.disabled = true; testConnBtn.textContent = 'Testando...';
 var body = new URLSearchParams(); body.set('esp32_ip', ip); body.set('udp_port', ($('#udp_port') || {}).value || '');
 fetch('/api/test', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body })
 .then(function (r) { return r.json(); }).then(function (d) {
 testConnBtn.disabled = false; testConnBtn.textContent = orig;
-setConnResult(d.message || (d.reachable ? 'Reachable.' : 'Not reachable.'), !!d.reachable);
-}).catch(function (err) { testConnBtn.disabled = false; testConnBtn.textContent = orig; setConnResult('Error: ' + err, false); });
+setConnResult(d.message || (d.reachable ? 'Acessível.' : 'Não acessível.'), !!d.reachable);
+}).catch(function (err) { testConnBtn.disabled = false; testConnBtn.textContent = orig; setConnResult('Erro: ' + err, false); });
 });
 
 // ---- PC companion: Windows autostart ------------------------------------
 var autoChk = $('#autostartChk');
 function setAutostartState(enabled) {
-var t = $('#autostartState'); if (t) t.textContent = enabled ? 'Enabled - saved' : 'Disabled';
+var t = $('#autostartState'); if (t) t.textContent = enabled ? 'Ativado - salvo' : 'Desativado';
 }
 function refreshAutostart() {
 fetch('/api/autostart').then(function (r) { return r.json(); }).then(function (d) {
@@ -699,7 +699,7 @@ if (autoChk) autoChk.checked = !!d.enabled; setAutostartState(!!d.enabled);
 if (autoChk) autoChk.addEventListener('change', function () {
 // Saves itself immediately (writes the HKCU Run key) - no "Save & push" needed.
 var body = new URLSearchParams(); body.set('enable', autoChk.checked ? '1' : '0');
-autoChk.disabled = true; var _as = $('#autostartState'); if (_as) _as.textContent = 'Saving...';
+autoChk.disabled = true; var _as = $('#autostartState'); if (_as) _as.textContent = 'Salvando...';
 fetch('/api/autostart', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body })
 .then(function (r) { return r.json(); }).then(function (d) { autoChk.disabled = false; autoChk.checked = !!d.enabled; setAutostartState(!!d.enabled); })
 .catch(function () { autoChk.disabled = false; refreshAutostart(); });
@@ -707,11 +707,11 @@ fetch('/api/autostart', { method: 'POST', headers: { 'Content-Type': 'applicatio
 
 // ---- PC companion: sensor source + selection ----------------------------
 var SENSORS = [], MAXSEL = (CFG.maxMetrics || 20), selOrder = [];
-var CAT_LABELS = { system: 'System (CPU / RAM / Disk)', gpu: 'GPU', temperature: 'Temperatures', fan: 'Fans', load: 'Loads', clock: 'Clocks', power: 'Power', data: 'Data', throughput: 'Network throughput', other: 'Other' };
+var CAT_LABELS = { system: 'Sistema (CPU / RAM / Disco)', gpu: 'GPU', temperature: 'Temperaturas', fan: 'Ventoinhas', load: 'Uso / Carga', clock: 'Frequências', power: 'Consumo / Energia', data: 'Dados', throughput: 'Tráfego de rede', other: 'Outros' };
 function selectedKeys() { return selOrder.slice(); }
 function updateSensorCount() {
 var n = selOrder.length;
-setText('sensorCount', 'Selected: ' + n + ' / ' + MAXSEL);
+setText('sensorCount', 'Selecionados: ' + n + ' / ' + MAXSEL);
 $$('#sensorList input[type="checkbox"]').forEach(function (cb) {
 if (!cb.checked) cb.disabled = (n >= MAXSEL);
 });
@@ -720,13 +720,13 @@ function nameForKey(key) { for (var i = 0; i < SENSORS.length; i++) if (SENSORS[
 function renderSelectedTray() {
 var host = $('#selectedTray'); if (!host) return;
 host.innerHTML = '';
-if (!selOrder.length) { host.innerHTML = '<span class="chip-empty">No sensors selected yet - tick some below.</span>'; return; }
+if (!selOrder.length) { host.innerHTML = '<span class="chip-empty">Nenhum sensor selecionado - marque alguns abaixo.</span>'; return; }
 selOrder.forEach(function (key) {
 var s = null; for (var i = 0; i < SENSORS.length; i++) if (SENSORS[i].key === key) { s = SENSORS[i]; break; }
 var onscreen = !!(s && s.placed);
 var chip = document.createElement('div'); chip.className = 'chip ' + (onscreen ? 'onscreen' : 'sel');
-chip.title = (onscreen ? 'On the device screen' : 'Sent but not placed on screen yet') + ' - click to remove';
-chip.innerHTML = '<span class="cn">' + esc(nameForKey(key)) + '</span><span class="cb">remove</span>';
+chip.title = (onscreen ? 'Na tela do dispositivo' : 'Enviado, mas ainda não posicionado na tela') + ' - clique para remover';
+chip.innerHTML = '<span class="cn">' + esc(nameForKey(key)) + '</span><span class="cb">remover</span>';
 chip.addEventListener('click', function () {
 var i = selOrder.indexOf(key); if (i >= 0) selOrder.splice(i, 1);
 syncCheckboxes(); updateSensorCount(); renderSelectedTray(); postSelection();
@@ -767,7 +767,7 @@ var banner = $('#sourceBanner');
 if (banner && data.banner) { banner.textContent = data.banner.text; banner.className = 'note ' + (data.banner.level === 'ok' ? '' : data.banner.level === 'warn' ? 'warn' : 'warn'); }
 var list = $('#sensorList'); if (!list) return;
 list.innerHTML = '';
-if (!SENSORS.length) { list.innerHTML = '<p class="field-hint">No sensors discovered yet. Start LibreHardwareMonitor and click Rescan.</p>'; updateSensorCount(); return; }
+if (!SENSORS.length) { list.innerHTML = '<p class="field-hint">Nenhum sensor encontrado. Inicie o LibreHardwareMonitor e clique em Buscar novamente.</p>'; updateSensorCount(); return; }
 var order = ['system', 'gpu', 'temperature', 'fan', 'load', 'clock', 'power', 'data', 'throughput', 'other'];
 var byCat = {}; SENSORS.forEach(function (s) { (byCat[s.category] = byCat[s.category] || []).push(s); });
 order.forEach(function (cat) {
@@ -786,7 +786,7 @@ var cb = row.querySelector('input');
 cb.addEventListener('change', function () {
 if (cb.checked) { if (selOrder.indexOf(s.key) < 0) selOrder.push(s.key); }
 else { var i = selOrder.indexOf(s.key); if (i >= 0) selOrder.splice(i, 1); }
-if (selOrder.length > MAXSEL) { selOrder.pop(); cb.checked = false; alert('Maximum ' + MAXSEL + ' metrics.'); return; }
+if (selOrder.length > MAXSEL) { selOrder.pop(); cb.checked = false; alert('Máximo de ' + MAXSEL + ' métricas.'); return; }
 updateSensorCount();
 renderSelectedTray();
 postSelection();
@@ -799,9 +799,9 @@ updateSensorCount();
 renderSelectedTray();
 }
 function loadSensors(rescan) {
-var banner = $('#sourceBanner'); if (banner && rescan) { banner.textContent = 'Rescanning sensors...'; banner.className = 'note'; }
+var banner = $('#sourceBanner'); if (banner && rescan) { banner.textContent = 'Buscando sensores novamente...'; banner.className = 'note'; }
 return fetch('/api/sensors' + (rescan ? '?rescan=1' : '')).then(function (r) { return r.json(); })
-.then(renderSensors).catch(function () { if (banner) { banner.textContent = 'Could not read sensors.'; banner.className = 'note warn'; } });
+.then(renderSensors).catch(function () { if (banner) { banner.textContent = 'Não foi possível ler os sensores.'; banner.className = 'note warn'; } });
 }
 var rescanBtn = $('#rescanBtn');
 if (rescanBtn) rescanBtn.addEventListener('click', function () { rescanBtn.disabled = true; loadSensors(true).then(function () { rescanBtn.disabled = false; refreshStatus(); }); });

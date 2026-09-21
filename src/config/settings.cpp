@@ -127,9 +127,9 @@ void loadSettings() {
     Serial.println("WARNING: Failed to open preferences, using defaults");
     // Initialize with defaults
     settings.clockStyle = 0;
-    settings.gmtOffset = 60;  // GMT+1 (Central European)
-    settings.daylightSaving = true;
-    strcpy(settings.timezoneString, "CET-1CEST,M3.5.0/02:00,M10.5.0/03:00"); // Default: Central European
+    settings.gmtOffset = -180;  // Brasilia (UTC-03:00)
+    settings.daylightSaving = false;
+    strcpy(settings.timezoneString, "BRT3");
     settings.use24Hour = true;
     settings.dateFormat = 0;
     settings.clockPosition = 0; // Center by default
@@ -214,9 +214,9 @@ void loadSettings() {
         "Fresh preferences namespace detected, initializing with defaults...");
     // Write defaults to NVS
     preferences.putInt("clockStyle", 0);
-    preferences.putInt("gmtOffset", 60); // GMT+1 (Central European)
-    preferences.putBool("dst", true);
-    preferences.putString("tz", "CET-1CEST,M3.5.0/02:00,M10.5.0/03:00"); // Default: Central European
+    preferences.putInt("gmtOffset", -180); // Brasilia (UTC-03:00)
+    preferences.putBool("dst", false);
+    preferences.putString("tz", "BRT3");
     preferences.putBool("use24Hour", true);
     preferences.putInt("dateFormat", 0);
     preferences.putInt("clockPos", 0);    // Center
@@ -283,7 +283,7 @@ void loadSettings() {
     settings.gmtOffset = loadedOffset; // Already in minutes
   }
 
-  settings.daylightSaving = preferences.getBool("dst", true);  // Default: true
+  settings.daylightSaving = preferences.getBool("dst", false);
 
   // Timezone migration: migrate from old gmtOffset + dst to new timezoneString
   if (preferences.isKey("tz")) {
@@ -332,6 +332,17 @@ void loadSettings() {
                     settings.gmtOffset);
     }
   }
+
+  // This firmware is fixed to Brasilia time, including after importing an
+  // older configuration that contained another timezone.
+  settings.gmtOffset = -180;
+  settings.daylightSaving = false;
+  settings.timezoneIndex = 0;
+  strcpy(settings.timezoneString, "BRT3");
+  preferences.putInt("gmtOffset", -180);
+  preferences.putBool("dst", false);
+  preferences.putString("tz", "BRT3");
+  preferences.putUChar("tzIdx", 0);
 
   settings.use24Hour = preferences.getBool("use24Hour", true); // Default: 24h
   settings.dateFormat =
@@ -529,11 +540,7 @@ void loadSettings() {
   settings.matrixShowDate =
       preferences.getBool("mxDate", false); // Default: hidden (centred clock)
   settings.matrixTransparent =
-      preferences.getBool("mxTransp", true); // Default: rain falls through
-  settings.matrixSmoothScroll =
-      preferences.getBool("mxSmooth", false); // Default: classic row-stepped rain
-  settings.matrixSmallClock =
-      preferences.getBool("mxSmall", false); // Default: full-size clock
+      preferences.getBool("mxTransp", false); // Default: solid digit plates
   settings.doomFlameHeight =
       preferences.getUChar("dmHeight", 20); // Default: 20px reach
   // Before the split one setting drove both, with the cooler ground reaching
@@ -837,8 +844,6 @@ void saveSettings() {
   preferences.putUChar("mxDensity", settings.matrixRainDensity);
   preferences.putBool("mxDate", settings.matrixShowDate);
   preferences.putBool("mxTransp", settings.matrixTransparent);
-  preferences.putBool("mxSmooth", settings.matrixSmoothScroll);
-  preferences.putBool("mxSmall", settings.matrixSmallClock);
   preferences.putUChar("dmHeight", settings.doomFlameHeight);
   preferences.putUChar("dmGround", settings.doomGroundHeight);
   preferences.putUChar("dmWind", settings.doomWind);
@@ -891,7 +896,7 @@ void saveSettings() {
     String key = "label" + String(i);
     if (settings.metricLabels[i][0] != '\0') {
       preferences.putString(key.c_str(), settings.metricLabels[i]);
-    } else if (preferences.isKey(key.c_str())) {
+    } else {
       preferences.remove(key.c_str()); // Remove if empty
     }
   }
@@ -901,7 +906,7 @@ void saveSettings() {
     String key = "name" + String(i);
     if (settings.metricNames[i][0] != '\0') {
       preferences.putString(key.c_str(), settings.metricNames[i]);
-    } else if (preferences.isKey(key.c_str())) {
+    } else {
       preferences.remove(key.c_str()); // Remove if empty
     }
   }

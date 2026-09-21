@@ -1,15 +1,14 @@
-// The config portal's sources. tools/web_assets_gen.py gzips them into
-// web_assets.h, which is what the firmware serves.
+// AUTO-GENERATED page template. See src/web/web.cpp (handleRoot/streamTemplate).
 // Redesigned "paper docs" config portal (master-detail layout).
 //
 // Four PROGMEM blobs:
-//   PAGE_HTML  - the markup, static: its values come from /api/portal.
-//   PORTAL_CSS - styles, served from /portal.css (long cache, ?v= content hash).
-//   PORTAL_JS  - interactions, served from /portal.js (long cache, ?v= content hash).
+//   PAGE_HTML  - markup + %TOKEN% placeholders, streamed/substituted by handleRoot().
+//   PORTAL_CSS - styles, served verbatim from /portal.css (no tokens, long cache).
+//   PORTAL_JS  - interactions, served verbatim from /portal.js (no tokens, long cache).
 //   FAVICON_SVG - brand mark, served from /favicon.svg and /favicon.ico.
 //
-// Keeping CSS and JS on their own routes lets a browser keep them for a year
-// and refetch only the page, which an ETag then makes cost nothing.
+// Keeping CSS/JS on their own cacheable routes leaves PAGE_HTML small so peak
+// heap during the token-substituted render stays low on the ESP32-C3.
 #pragma once
 #include <Arduino.h>
 
@@ -21,14 +20,14 @@ static const char FAVICON_SVG[] PROGMEM =
 
 
 // ============================================================================
-//  PAGE_HTML - the page itself. No placeholders: handlePortalValues() fills it.
+//  PAGE_HTML - the only document with %TOKEN% placeholders (resolvePlaceholder).
 // ============================================================================
 static const char PAGE_HTML[] PROGMEM = R"PAGE(<!doctype html>
-<html lang="en" data-accent="green" data-mode="light">
+<html lang="pt-BR" data-accent="green" data-mode="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AnimatedPixelClock - Config Portal</title>
+<title>AnimatedPixelClock - Config Portal v%VER%</title>
 <meta name="theme-color" content="#f4f0e7">
 <script>(function(){try{var a=localStorage.getItem('soled_accent');if(a)document.documentElement.setAttribute('data-accent',a);var m=localStorage.getItem('soled_mode');if(m){document.documentElement.setAttribute('data-mode',m);var mt=document.querySelector('meta[name=theme-color]');if(mt)mt.setAttribute('content',m==='dark'?'#161512':'#f4f0e7');}}catch(e){}})();</script>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -42,19 +41,19 @@ static const char PAGE_HTML[] PROGMEM = R"PAGE(<!doctype html>
   <div class="tb-brand">
     <span class="brand-mark" aria-hidden="true"></span>
     <span class="tb-name">PixelClock</span>
-    <span class="tb-ver" id="tbVer"></span>
+    <span class="tb-ver">v%VER%</span>
   </div>
   <span class="tb-sep" aria-hidden="true"></span>
-  <span class="tb-crumb" id="crumb">Clock</span>
+  <span class="tb-crumb" id="crumb">Relógio</span>
   <div class="tb-right">
-    <div class="acc-pick" role="group" aria-label="Accent colour">
-      <span class="lab">Accent</span>
-      <button type="button" class="acc-sw on" data-acc="green" title="Green" aria-label="Green accent"><i></i></button>
-      <button type="button" class="acc-sw" data-acc="amber" title="Amber" aria-label="Amber accent"><i></i></button>
+    <div class="acc-pick" role="group" aria-label="Cor de destaque">
+      <span class="lab">Destaque</span>
+      <button type="button" class="acc-sw on" data-acc="green" title="Verde" aria-label="Destaque verde"><i></i></button>
+      <button type="button" class="acc-sw" data-acc="amber" title="Âmbar" aria-label="Destaque âmbar"><i></i></button>
     </div>
     <div class="mode-toggle" role="group" aria-label="Colour mode">
-      <button type="button" data-mode="light" class="on"><span class="ic"></span>Light</button>
-      <button type="button" data-mode="dark"><span class="ic"></span>Dark</button>
+      <button type="button" data-mode="light" class="on"><span class="ic"></span>Claro</button>
+      <button type="button" data-mode="dark"><span class="ic"></span>Escuro</button>
     </div>
   </div>
 </header>
@@ -65,32 +64,32 @@ static const char PAGE_HTML[] PROGMEM = R"PAGE(<!doctype html>
   <aside class="sidebar">
     <nav aria-label="Sections">
       <div class="nav-group">
-        <div class="nav-label">Configuration</div>
-        <button type="button" class="nav-item active" data-nav="clock">Clock</button>
-        <button type="button" class="nav-item" data-nav="display">Display</button>
-        <button type="button" class="nav-item" data-nav="viz">Audio visualizer<span class="nv-tag">Audio</span></button>
-        <button type="button" class="nav-item" data-nav="layout">Display layout<span class="nv-tag">PC</span></button>
-        <button type="button" class="nav-item" data-nav="metrics">Visible metrics<span class="nv-tag">PC</span></button>
+        <div class="nav-label">Configuração</div>
+        <button type="button" class="nav-item active" data-nav="clock">Relógio</button>
+        <button type="button" class="nav-item" data-nav="display">Tela</button>
+        <button type="button" class="nav-item" data-nav="viz">Visualizador de áudio<span class="nv-tag">Áudio</span></button>
+        <button type="button" class="nav-item" data-nav="layout">Layout da tela<span class="nv-tag">PC</span></button>
+        <button type="button" class="nav-item" data-nav="metrics">Métricas visíveis<span class="nv-tag">PC</span></button>
       </div>
       <div class="nav-group">
-        <div class="nav-label">Network</div>
-        <button type="button" class="nav-item" data-nav="network">Network</button>
-        <button type="button" class="nav-item" data-nav="timezone">Timezone</button>
+        <div class="nav-label">Rede</div>
+        <button type="button" class="nav-item" data-nav="network">Rede</button>
+        <button type="button" class="nav-item" data-nav="timezone">Fuso horário</button>
       </div>
       <div class="nav-group">
-        <div class="nav-label">System</div>
-        <button type="button" class="nav-item" data-nav="firmware">Maintenance</button>
+        <div class="nav-label">Sistema</div>
+        <button type="button" class="nav-item" data-nav="firmware">Manutenção</button>
       </div>
     </nav>
 
     <div class="sidebar-spacer"></div>
 
     <div class="status-block">
-      <div class="rail-label">Device status</div>
+      <div class="rail-label">Status do dispositivo</div>
       <details id="deviceDiagnostics" style="margin:12px 0">
-        <summary>Diagnostics</summary>
+        <summary>Diagnóstico</summary>
         <pre id="diagnosticsText" style="white-space:pre-wrap;font-size:11px">Loading...</pre>
-        <a href="/api/diagnostics" download="pixelclock-diagnostics.json">Download diagnostics</a>
+        <a href="/api/diagnostics" download="pixelclock-diagnostics.json">Baixar diagnóstico</a>
       </details>
       <div class="status-readout" id="statusReadout">
         <div class="sr-head">
@@ -98,8 +97,8 @@ static const char PAGE_HTML[] PROGMEM = R"PAGE(<!doctype html>
           <span class="sr-title" id="srTitle">connecting...</span>
         </div>
         <dl class="sr-rows">
-          <div class="sr-row"><dt>ip</dt><dd id="srIp"></dd></div>
-          <div class="sr-row"><dt>host</dt><dd><span id="srHost"></span>.local</dd></div>
+          <div class="sr-row"><dt>ip</dt><dd id="srIp">%IP%</dd></div>
+          <div class="sr-row"><dt>host</dt><dd><span id="srHost">%V_DEVICENAME%</span>.local</dd></div>
           <div class="sr-row"><dt>uptime</dt><dd id="srUptime">--</dd></div>
           <div class="sr-row"><dt>rssi</dt><dd id="srRssi">--</dd></div>
         </dl>
@@ -107,7 +106,7 @@ static const char PAGE_HTML[] PROGMEM = R"PAGE(<!doctype html>
     </div>
 
     <div class="about">
-      <span class="line">AnimatedPixelClock &middot; <b id="aboutVer"></b></span>
+      <span class="line">AnimatedPixelClock &middot; <b>v%VER%</b></span>
       <a href="https://github.com/Keralots/AnimatedPixelClock" target="_blank" rel="noopener"><span class="gh" aria-hidden="true"></span>github.com/Keralots</a>
     </div>
   </aside>
@@ -119,40 +118,40 @@ static const char PAGE_HTML[] PROGMEM = R"PAGE(<!doctype html>
         <!-- CLOCK -->
         <section class="page active" data-page="clock">
           <div class="page-header">
-            <h1 class="page-h1">Clock</h1>
-            <p class="page-lede">Pick the idle animation shown when your PC is asleep, and how the time and date are formatted.</p>
+            <h1 class="page-h1">Relógio</h1>
+            <p class="page-lede">Escolha a animação exibida quando o PC estiver ocioso e o formato da hora e da data.</p>
           </div>
 
           <div class="card">
-            <h2 class="card-title">Idle clock</h2>
+            <h2 class="card-title">Relógio ocioso</h2>
             <div class="field">
-              <label class="field-label" for="clockStyle">Clock style</label>
+              <label class="field-label" for="clockStyle">Estilo do relógio</label>
               <div class="select-wrap">
                 <select name="clockStyle" id="clockStyle">
-                  <option value="0">Mario Animation</option>
-                  <option value="1">Standard Clock</option>
-                  <option value="2">Large Clock</option>
-                  <option value="3">Space Invaders</option>
-                  <option value="5">Arkanoid</option>
-                  <option value="6">Pac-Man Clock</option>
-                  <option value="7">Snake</option>
-                  <option value="8">Tetris</option>
-                  <option value="10">Asteroids</option>
-                  <option value="11">Dino Runner</option>
-                  <option value="12">Matrix Rain</option>
-                  <option value="14">Weather Clock</option>
-                  <option value="15">Bomberman</option>
-                  <option value="16">TRON</option>
-                  <option value="17">Doom Fire</option>
-                  <option value="9">Custom rotation</option>
+                  <option value="0" %SEL_CLOCKSTYLE_0%>Animação do Mario</option>
+                  <option value="1" %SEL_CLOCKSTYLE_1%>Relógio padrão</option>
+                  <option value="2" %SEL_CLOCKSTYLE_2%>Relógio grande</option>
+                  <option value="3" %SEL_CLOCKSTYLE_3%>Space Invaders</option>
+                  <option value="5" %SEL_CLOCKSTYLE_5%>Arkanoid</option>
+                  <option value="6" %SEL_CLOCKSTYLE_6%>Relógio Pac-Man</option>
+                  <option value="7" %SEL_CLOCKSTYLE_7%>Snake</option>
+                  <option value="8" %SEL_CLOCKSTYLE_8%>Tetris</option>
+                  <option value="10" %SEL_CLOCKSTYLE_10%>Asteroids</option>
+                  <option value="11" %SEL_CLOCKSTYLE_11%>Dino Runner</option>
+                  <option value="12" %SEL_CLOCKSTYLE_12%>Chuva Matrix</option>
+                  <option value="14" %SEL_CLOCKSTYLE_14%>Relógio do clima</option>
+                  <option value="15" %SEL_CLOCKSTYLE_15%>Bomberman</option>
+                  <option value="16" %SEL_CLOCKSTYLE_16%>TRON</option>
+                  <option value="17" %SEL_CLOCKSTYLE_17%>Doom Fire</option>
+                  <option value="9" %SEL_CLOCKSTYLE_9%>Rotação personalizada</option>
                 </select>
               </div>
             </div>
 
             <div class="subcard" id="cycleSettings" style="display:none">
-              <h3>Clock rotation</h3>
-              <p class="field-hint">Enable clocks, move them into order, and set seconds per clock (5-3600). Weather is skipped until configured.</p>
-              <input type="hidden" id="cycleConfig" name="cycleConfig" value="">
+              <h3>Rotação dos relógios</h3>
+              <p class="field-hint">Ative os relógios, ordene-os e defina os segundos por relógio (5-3600). O clima é ignorado até ser configurado.</p>
+              <input type="hidden" id="cycleConfig" name="cycleConfig" value="%V_CYCLECONFIG%">
               <div id="cycleRows"></div>
             </div>
             <div class="subcard" id="tronSettings" style="display:none">
@@ -160,8 +159,8 @@ static const char PAGE_HTML[] PROGMEM = R"PAGE(<!doctype html>
                 <label class="field-label" for="tronBikeStyle">Motorcycle variant</label>
                 <div class="select-wrap">
                   <select name="tronBikeStyle" id="tronBikeStyle">
-                    <option value="0">Motorcycle (side view)</option>
-                    <option value="1">Light cycle (top view)</option>
+                    <option value="0" %SEL_TRONBIKESTYLE_0%>Motorcycle (side view)</option>
+                    <option value="1" %SEL_TRONBIKESTYLE_1%>Light cycle (top view)</option>
                   </select>
                 </div>
                 <p class="field-hint">Choose a rider with visible wheels or a slim light cycle viewed from above. Applies to both bikes, including in Cycle All.</p>
@@ -170,53 +169,53 @@ static const char PAGE_HTML[] PROGMEM = R"PAGE(<!doctype html>
             </div>
 
             <!-- Mario -->
-            <div class="subcard" id="marioSettings" style="display:none">
+            <div class="subcard" id="marioSettings" style="display:%DSP_CLOCKSTYLE_0%">
               <div class="grid-2">
                 <div class="field" style="margin-bottom:0">
                   <label class="field-label" for="marioBounceHeight">Bounce height</label>
                   <div class="range-row">
-                    <input type="range" name="marioBounceHeight" id="marioBounceHeight" min="10" max="50" step="5" value="" data-div="10" data-fixed="1">
-                    <span class="range-val" data-for="marioBounceHeight"></span>
+                    <input type="range" name="marioBounceHeight" id="marioBounceHeight" min="10" max="50" step="5" value="%V_MARIOBOUNCEHEIGHT%" data-div="10" data-fixed="1">
+                    <span class="range-val" data-for="marioBounceHeight">%F_MARIOBOUNCEHEIGHT%</span>
                   </div>
                   <p class="field-hint">How high digits bounce when Mario hits them. Default 3.5.</p>
                 </div>
                 <div class="field" style="margin-bottom:0">
                   <label class="field-label" for="marioBounceSpeed">Fall speed</label>
                   <div class="range-row">
-                    <input type="range" name="marioBounceSpeed" id="marioBounceSpeed" min="2" max="15" step="1" value="" data-div="10" data-fixed="1">
-                    <span class="range-val" data-for="marioBounceSpeed"></span>
+                    <input type="range" name="marioBounceSpeed" id="marioBounceSpeed" min="2" max="15" step="1" value="%V_MARIOBOUNCESPEED%" data-div="10" data-fixed="1">
+                    <span class="range-val" data-for="marioBounceSpeed">%F_MARIOBOUNCESPEED%</span>
                   </div>
                   <p class="field-hint">How fast digits fall back down. Higher is faster. Default 0.6.</p>
                 </div>
                 <div class="field" style="margin-bottom:0">
                   <label class="field-label" for="marioWalkSpeed">Walk speed</label>
                   <div class="range-row">
-                    <input type="range" name="marioWalkSpeed" id="marioWalkSpeed" min="15" max="35" step="1" value="" data-div="10" data-fixed="1">
-                    <span class="range-val" data-for="marioWalkSpeed"></span>
+                    <input type="range" name="marioWalkSpeed" id="marioWalkSpeed" min="15" max="35" step="1" value="%V_MARIOWALKSPEED%" data-div="10" data-fixed="1">
+                    <span class="range-val" data-for="marioWalkSpeed">%F_MARIOWALKSPEED%</span>
                   </div>
                   <p class="field-hint">How fast Mario walks. Higher is faster. Default 2.0.</p>
                 </div>
               </div>
               <label class="check-row standalone" style="margin-top:16px">
-                <input type="checkbox" name="marioSmoothAnimation" id="marioSmoothAnimation">
+                <input type="checkbox" name="marioSmoothAnimation" id="marioSmoothAnimation" %CHK_MARIOSMOOTHANIMATION%>
                 <span class="check-box" aria-hidden="true"></span>
                 <span class="check-text"><strong>Smooth animation</strong><span class="ct-hint">4-frame walk cycle for a smoother stride. Default off.</span></span>
               </label>
               <label class="check-row standalone" style="margin-top:12px">
-                <input type="checkbox" name="marioIdleEncounters" id="marioIdleEncounters">
+                <input type="checkbox" name="marioIdleEncounters" id="marioIdleEncounters" %CHK_MARIOIDLEENCOUNTERS%>
                 <span class="check-box" aria-hidden="true"></span>
                 <span class="check-text"><strong>Idle encounters</strong><span class="ct-hint">Goombas and Spinies appear between minute changes for Mario to defeat. Default off.</span></span>
               </label>
-              <div id="marioEncFields" style="display:none">
+              <div id="marioEncFields" style="display:%DSP_MARIOIDLEENCOUNTERS%">
                 <div class="grid-2" style="margin-top:14px">
                   <div class="field" style="margin-bottom:0">
                     <label class="field-label" for="marioEncounterFreq">Encounter frequency</label>
                     <div class="select-wrap">
                       <select name="marioEncounterFreq" id="marioEncounterFreq">
-                        <option value="0">Rare (25-35s)</option>
-                        <option value="1">Normal (15-25s)</option>
-                        <option value="2">Frequent (8-15s)</option>
-                        <option value="3">Chaotic (2-5s)</option>
+                        <option value="0" %SEL_MARIOENCOUNTERFREQ_0%>Rare (25-35s)</option>
+                        <option value="1" %SEL_MARIOENCOUNTERFREQ_1%>Normal (15-25s)</option>
+                        <option value="2" %SEL_MARIOENCOUNTERFREQ_2%>Frequent (8-15s)</option>
+                        <option value="3" %SEL_MARIOENCOUNTERFREQ_3%>Chaotic (2-5s)</option>
                       </select>
                     </div>
                   </div>
@@ -224,9 +223,9 @@ static const char PAGE_HTML[] PROGMEM = R"PAGE(<!doctype html>
                     <label class="field-label" for="marioEncounterSpeed">Encounter speed</label>
                     <div class="select-wrap">
                       <select name="marioEncounterSpeed" id="marioEncounterSpeed">
-                        <option value="0">Slow</option>
-                        <option value="1">Normal</option>
-                        <option value="2">Fast</option>
+                        <option value="0" %SEL_MARIOENCOUNTERSPEED_0%>Slow</option>
+                        <option value="1" %SEL_MARIOENCOUNTERSPEED_1%>Normal</option>
+                        <option value="2" %SEL_MARIOENCOUNTERSPEED_2%>Fast</option>
                       </select>
                     </div>
                   </div>
@@ -235,13 +234,13 @@ static const char PAGE_HTML[] PROGMEM = R"PAGE(<!doctype html>
             </div>
 
             <!-- Space Invaders / Ship (styles 3 + 4) -->
-            <div class="subcard" id="spaceSettings" style="display:none">
+            <div class="subcard" id="spaceSettings" style="display:%DSP_CLOCKSTYLE_34%">
               <div class="field">
                 <label class="field-label" for="spaceCharacterType">Character type</label>
                 <div class="select-wrap">
                   <select name="spaceCharacterType" id="spaceCharacterType">
-                    <option value="0">Space Invader</option>
-                    <option value="1">Space Ship (default)</option>
+                    <option value="0" %SEL_SPACECHARACTERTYPE_0%>Space Invader</option>
+                    <option value="1" %SEL_SPACECHARACTERTYPE_1%>Space Ship (default)</option>
                   </select>
                 </div>
                   <p class="field-hint">The character that patrols and attacks the digits.</p>
@@ -250,32 +249,32 @@ static const char PAGE_HTML[] PROGMEM = R"PAGE(<!doctype html>
                 <div class="field" style="margin-bottom:0">
                   <label class="field-label" for="spacePatrolSpeed">Patrol speed</label>
                   <div class="range-row">
-                    <input type="range" name="spacePatrolSpeed" id="spacePatrolSpeed" min="2" max="15" step="1" value="" data-div="10" data-fixed="1">
-                    <span class="range-val" data-for="spacePatrolSpeed"></span>
+                    <input type="range" name="spacePatrolSpeed" id="spacePatrolSpeed" min="2" max="15" step="1" value="%V_SPACEPATROLSPEED%" data-div="10" data-fixed="1">
+                    <span class="range-val" data-for="spacePatrolSpeed">%F_SPACEPATROLSPEED%</span>
                   </div>
                   <p class="field-hint">How fast the character drifts during patrol. Default 0.5.</p>
                 </div>
                 <div class="field" style="margin-bottom:0">
                   <label class="field-label" for="spaceAttackSpeed">Attack speed</label>
                   <div class="range-row">
-                    <input type="range" name="spaceAttackSpeed" id="spaceAttackSpeed" min="10" max="40" step="5" value="" data-div="10" data-fixed="1">
-                    <span class="range-val" data-for="spaceAttackSpeed"></span>
+                    <input type="range" name="spaceAttackSpeed" id="spaceAttackSpeed" min="10" max="40" step="5" value="%V_SPACEATTACKSPEED%" data-div="10" data-fixed="1">
+                    <span class="range-val" data-for="spaceAttackSpeed">%F_SPACEATTACKSPEED%</span>
                   </div>
                   <p class="field-hint">How fast it slides to attack position. Default 2.5.</p>
                 </div>
                 <div class="field" style="margin-bottom:0">
                   <label class="field-label" for="spaceLaserSpeed">Laser speed</label>
                   <div class="range-row">
-                    <input type="range" name="spaceLaserSpeed" id="spaceLaserSpeed" min="20" max="80" step="5" value="" data-div="10" data-fixed="1">
-                    <span class="range-val" data-for="spaceLaserSpeed"></span>
+                    <input type="range" name="spaceLaserSpeed" id="spaceLaserSpeed" min="20" max="80" step="5" value="%V_SPACELASERSPEED%" data-div="10" data-fixed="1">
+                    <span class="range-val" data-for="spaceLaserSpeed">%F_SPACELASERSPEED%</span>
                   </div>
                   <p class="field-hint">How fast the laser extends downward. Default 4.0.</p>
                 </div>
                 <div class="field" style="margin-bottom:0">
                   <label class="field-label" for="spaceExplosionGravity">Explosion intensity</label>
                   <div class="range-row">
-                    <input type="range" name="spaceExplosionGravity" id="spaceExplosionGravity" min="3" max="10" step="1" value="" data-div="10" data-fixed="1">
-                    <span class="range-val" data-for="spaceExplosionGravity"></span>
+                    <input type="range" name="spaceExplosionGravity" id="spaceExplosionGravity" min="3" max="10" step="1" value="%V_SPACEEXPLOSIONGRAVITY%" data-div="10" data-fixed="1">
+                    <span class="range-val" data-for="spaceExplosionGravity">%F_SPACEEXPLOSIONGRAVITY%</span>
                   </div>
                   <p class="field-hint">Fragment gravity - how fast debris falls. Default 0.5.</p>
                 </div>
@@ -283,277 +282,277 @@ static const char PAGE_HTML[] PROGMEM = R"PAGE(<!doctype html>
             </div>
 
             <!-- Arkanoid (style 5) -->
-            <div class="subcard" id="pongSettings" style="display:none">
+            <div class="subcard" id="pongSettings" style="display:%DSP_CLOCKSTYLE_5%">
               <div class="grid-2">
                 <div class="field" style="margin-bottom:0">
                   <label class="field-label" for="pongBallSpeed">Ball speed</label>
                   <div class="range-row">
-                    <input type="range" name="pongBallSpeed" id="pongBallSpeed" min="16" max="30" step="1" value="">
-                    <span class="range-val" data-for="pongBallSpeed"></span>
+                    <input type="range" name="pongBallSpeed" id="pongBallSpeed" min="16" max="30" step="1" value="%V_PONGBALLSPEED%">
+                    <span class="range-val" data-for="pongBallSpeed">%V_PONGBALLSPEED%</span>
                   </div>
                   <p class="field-hint">How fast the ball moves. Default 18.</p>
                 </div>
                 <div class="field" style="margin-bottom:0">
                   <label class="field-label" for="pongBounceStrength">Bounce strength</label>
                   <div class="range-row">
-                    <input type="range" name="pongBounceStrength" id="pongBounceStrength" min="1" max="8" step="1" value="" data-div="10" data-fixed="1">
-                    <span class="range-val" data-for="pongBounceStrength"></span>
+                    <input type="range" name="pongBounceStrength" id="pongBounceStrength" min="1" max="8" step="1" value="%V_PONGBOUNCESTRENGTH%" data-div="10" data-fixed="1">
+                    <span class="range-val" data-for="pongBounceStrength">%F_PONGBOUNCESTRENGTH%</span>
                   </div>
                   <p class="field-hint">How much digits wobble when hit. Default 0.3.</p>
                 </div>
                 <div class="field" style="margin-bottom:0">
                   <label class="field-label" for="pongBounceDamping">Bounce damping</label>
                   <div class="range-row">
-                    <input type="range" name="pongBounceDamping" id="pongBounceDamping" min="50" max="95" step="5" value="" data-div="100" data-fixed="2">
-                    <span class="range-val" data-for="pongBounceDamping"></span>
+                    <input type="range" name="pongBounceDamping" id="pongBounceDamping" min="50" max="95" step="5" value="%V_PONGBOUNCEDAMPING%" data-div="100" data-fixed="2">
+                    <span class="range-val" data-for="pongBounceDamping">%F2_PONGBOUNCEDAMPING%</span>
                   </div>
                   <p class="field-hint">How quickly the wobble stops. Default 0.85.</p>
                 </div>
                 <div class="field" style="margin-bottom:0">
                   <label class="field-label" for="pongPaddleWidth">Paddle width</label>
                   <div class="range-row">
-                    <input type="range" name="pongPaddleWidth" id="pongPaddleWidth" min="10" max="40" step="2" value="" data-suffix="px">
-                    <span class="range-val" data-for="pongPaddleWidth"></span>
+                    <input type="range" name="pongPaddleWidth" id="pongPaddleWidth" min="10" max="40" step="2" value="%V_PONGPADDLEWIDTH%" data-suffix="px">
+                    <span class="range-val" data-for="pongPaddleWidth">%V_PONGPADDLEWIDTH%px</span>
                   </div>
                   <p class="field-hint">Paddle size. Narrower is harder. Default 20px.</p>
                 </div>
               </div>
               <label class="check-row standalone" style="margin-top:16px">
-                <input type="checkbox" name="pongHorizontalBounce" id="pongHorizontalBounce">
+                <input type="checkbox" name="pongHorizontalBounce" id="pongHorizontalBounce" %CHK_PONGHORIZONTALBOUNCE%>
                 <span class="check-box" aria-hidden="true"></span>
                 <span class="check-text"><strong>Horizontal digit bounce</strong><span class="ct-hint">Digits bounce sideways when hit from the side. Default on.</span></span>
               </label>
               <label class="check-row standalone" style="margin-top:10px">
-                <input type="checkbox" name="pongDigitShatter" id="pongDigitShatter">
+                <input type="checkbox" name="pongDigitShatter" id="pongDigitShatter" %CHK_PONGDIGITSHATTER%>
                 <span class="check-box" aria-hidden="true"></span>
                 <span class="check-text"><strong>Digit shatter animation</strong><span class="ct-hint">Changed digits break into fragments and reassemble. Off = digits just blink and swap. Default on.</span></span>
               </label>
             </div>
 
             <!-- Pac-Man (style 6) -->
-            <div class="subcard" id="pacmanSettings" style="display:none">
+            <div class="subcard" id="pacmanSettings" style="display:%DSP_CLOCKSTYLE_6%">
               <div class="grid-2">
                 <div class="field" style="margin-bottom:0">
                   <label class="field-label" for="pacmanSpeed">Patrol speed</label>
                   <div class="range-row">
-                    <input type="range" name="pacmanSpeed" id="pacmanSpeed" min="5" max="30" step="1" value="" data-div="10" data-fixed="1">
-                    <span class="range-val" data-for="pacmanSpeed"></span>
+                    <input type="range" name="pacmanSpeed" id="pacmanSpeed" min="5" max="30" step="1" value="%V_PACMANSPEED%" data-div="10" data-fixed="1">
+                    <span class="range-val" data-for="pacmanSpeed">%F_PACMANSPEED%</span>
                   </div>
                   <p class="field-hint">Patrol speed at the bottom. Default 1.0 px/frame.</p>
                 </div>
                 <div class="field" style="margin-bottom:0">
                   <label class="field-label" for="pacmanEatingSpeed">Eating speed</label>
                   <div class="range-row">
-                    <input type="range" name="pacmanEatingSpeed" id="pacmanEatingSpeed" min="10" max="50" step="1" value="" data-div="10" data-fixed="1">
-                    <span class="range-val" data-for="pacmanEatingSpeed"></span>
+                    <input type="range" name="pacmanEatingSpeed" id="pacmanEatingSpeed" min="10" max="50" step="1" value="%V_PACMANEATINGSPEED%" data-div="10" data-fixed="1">
+                    <span class="range-val" data-for="pacmanEatingSpeed">%F_PACMANEATINGSPEED%</span>
                   </div>
                   <p class="field-hint">How fast Pac-Man eats digits. Default 2.0 px/frame.</p>
                 </div>
                 <div class="field" style="margin-bottom:0">
                   <label class="field-label" for="pacmanMouthSpeed">Mouth speed</label>
                   <div class="range-row">
-                    <input type="range" name="pacmanMouthSpeed" id="pacmanMouthSpeed" min="5" max="20" step="1" value="" data-div="10" data-fixed="1">
-                    <span class="range-val" data-for="pacmanMouthSpeed"></span>
+                    <input type="range" name="pacmanMouthSpeed" id="pacmanMouthSpeed" min="5" max="20" step="1" value="%V_PACMANMOUTHSPEED%" data-div="10" data-fixed="1">
+                    <span class="range-val" data-for="pacmanMouthSpeed">%F_PACMANMOUTHSPEED%</span>
                   </div>
                   <p class="field-hint">Mouth open/close rate (waka-waka). Default 1.0 Hz.</p>
                 </div>
                 <div class="field" style="margin-bottom:0">
                   <label class="field-label" for="pacmanPelletCount">Pellets</label>
                   <div class="range-row">
-                    <input type="range" name="pacmanPelletCount" id="pacmanPelletCount" min="0" max="20" step="1" value="">
-                    <span class="range-val" data-for="pacmanPelletCount"></span>
+                    <input type="range" name="pacmanPelletCount" id="pacmanPelletCount" min="0" max="20" step="1" value="%V_PACMANPELLETCOUNT%">
+                    <span class="range-val" data-for="pacmanPelletCount">%V_PACMANPELLETCOUNT%</span>
                   </div>
                   <p class="field-hint">Pellets shown during patrol. Default 8.</p>
                 </div>
               </div>
               <label class="check-row standalone" style="margin-top:16px">
-                <input type="checkbox" name="pacmanPelletRandomSpacing" id="pacmanPelletRandomSpacing">
+                <input type="checkbox" name="pacmanPelletRandomSpacing" id="pacmanPelletRandomSpacing" %CHK_PACMANPELLETRANDOMSPACING%>
                 <span class="check-box" aria-hidden="true"></span>
                 <span class="check-text"><strong>Randomize pellet spacing</strong><span class="ct-hint">Pellets appear at random positions during patrol. Default on.</span></span>
               </label>
               <label class="check-row standalone" style="margin-top:12px">
-                <input type="checkbox" name="pacmanBounceEnabled" id="pacmanBounceEnabled">
+                <input type="checkbox" name="pacmanBounceEnabled" id="pacmanBounceEnabled" %CHK_PACMANBOUNCEENABLED%>
                 <span class="check-box" aria-hidden="true"></span>
                 <span class="check-text"><strong>Digit bounce</strong><span class="ct-hint">New digits bounce into place after being eaten. Default on.</span></span>
               </label>
             </div>
 
             <!-- Snake (style 7) -->
-            <div class="subcard" id="snakeSettings" style="display:none">
+            <div class="subcard" id="snakeSettings" style="display:%DSP_CLOCKSTYLE_7%">
               <div class="grid-2">
                 <div class="field" style="margin-bottom:0">
                   <label class="field-label" for="snakeSpeed">Speed</label>
                   <div class="range-row">
-                    <input type="range" name="snakeSpeed" id="snakeSpeed" min="5" max="30" step="1" value="" data-div="10" data-fixed="1">
-                    <span class="range-val" data-for="snakeSpeed"></span>
+                    <input type="range" name="snakeSpeed" id="snakeSpeed" min="5" max="30" step="1" value="%V_SNAKESPEED%" data-div="10" data-fixed="1">
+                    <span class="range-val" data-for="snakeSpeed">%F_SNAKESPEED%</span>
                   </div>
                   <p class="field-hint">How fast the snake slithers. Default 1.2 px/frame.</p>
                 </div>
                 <div class="field" style="margin-bottom:0">
                   <label class="field-label" for="snakeLength">Starting length</label>
                   <div class="range-row">
-                    <input type="range" name="snakeLength" id="snakeLength" min="4" max="12" step="1" value="">
-                    <span class="range-val" data-for="snakeLength"></span>
+                    <input type="range" name="snakeLength" id="snakeLength" min="4" max="12" step="1" value="%V_SNAKELENGTH%">
+                    <span class="range-val" data-for="snakeLength">%V_SNAKELENGTH%</span>
                   </div>
                   <p class="field-hint">Body length at start; grows as it eats. Default 8.</p>
                 </div>
               </div>
               <label class="check-row standalone" style="margin-top:16px">
-                <input type="checkbox" name="snakeWallBorder" id="snakeWallBorder">
+                <input type="checkbox" name="snakeWallBorder" id="snakeWallBorder" %CHK_SNAKEWALLBORDER%>
                 <span class="check-box" aria-hidden="true"></span>
                 <span class="check-text"><strong>Arena border</strong><span class="ct-hint">Draw a Nokia-style frame around the playfield. Default off.</span></span>
               </label>
               <label class="check-row standalone" style="margin-top:12px">
-                <input type="checkbox" name="snakeShowDate" id="snakeShowDate">
+                <input type="checkbox" name="snakeShowDate" id="snakeShowDate" %CHK_SNAKESHOWDATE%>
                 <span class="check-box" aria-hidden="true"></span>
                 <span class="check-text"><strong>Show date</strong><span class="ct-hint">Off gives the snake the whole screen and centres the clock. Default off.</span></span>
               </label>
             </div>
 
             <!-- Tetris (style 8) -->
-            <div class="subcard" id="tetrisSettings" style="display:none">
+            <div class="subcard" id="tetrisSettings" style="display:%DSP_CLOCKSTYLE_8%">
               <div class="grid-2">
                 <div class="field" style="margin-bottom:0">
-                  <label class="field-label" for="tetrisFallSpeed">Slab drop speed</label>
+                  <label class="field-label" for="tetrisFallSpeed">Velocidade de queda das placas</label>
                   <div class="range-row">
-                    <input type="range" name="tetrisFallSpeed" id="tetrisFallSpeed" min="5" max="30" step="1" value="" data-div="10" data-fixed="1">
-                    <span class="range-val" data-for="tetrisFallSpeed"></span>
+                    <input type="range" name="tetrisFallSpeed" id="tetrisFallSpeed" min="5" max="30" step="1" value="%V_TETRISFALLSPEED%" data-div="10" data-fixed="1">
+                    <span class="range-val" data-for="tetrisFallSpeed">%F_TETRISFALLSPEED%</span>
                   </div>
-                  <p class="field-hint">Slab drop-in speed (Drop-in Slabs). Default 1.2.</p>
+                  <p class="field-hint">Velocidade de entrada das placas. Padrão: 1,2.</p>
                 </div>
                 <div class="field" style="margin-bottom:0">
-                  <label class="field-label" for="tetrisDotSpeed">Dot fall speed</label>
+                  <label class="field-label" for="tetrisDotSpeed">Velocidade de queda dos pontos</label>
                   <div class="range-row">
-                    <input type="range" name="tetrisDotSpeed" id="tetrisDotSpeed" min="5" max="30" step="1" value="" data-div="10" data-fixed="1">
-                    <span class="range-val" data-for="tetrisDotSpeed"></span>
+                    <input type="range" name="tetrisDotSpeed" id="tetrisDotSpeed" min="5" max="30" step="1" value="%V_TETRISDOTSPEED%" data-div="10" data-fixed="1">
+                    <span class="range-val" data-for="tetrisDotSpeed">%F_TETRISDOTSPEED%</span>
                   </div>
-                  <p class="field-hint">Falling-dot speed. Lower is slower. Default 1.2.</p>
+                  <p class="field-hint">Velocidade dos pontos que caem. Menor é mais lento. Padrão: 1,2.</p>
                 </div>
                 <div class="field" style="margin-bottom:0">
-                  <label class="field-label" for="tetrisBlockStyle">Block style</label>
+                  <label class="field-label" for="tetrisBlockStyle">Estilo dos blocos</label>
                   <div class="select-wrap">
                     <select name="tetrisBlockStyle" id="tetrisBlockStyle">
-                      <option value="0">LCD Grid (gaps)</option>
-                      <option value="1">Solid Blocks</option>
+                      <option value="0" %SEL_TETRISBLOCKSTYLE_0%>Grade LCD (com espaços)</option>
+                      <option value="1" %SEL_TETRISBLOCKSTYLE_1%>Blocos sólidos</option>
                     </select>
                   </div>
-                  <p class="field-hint">Look of the digit blocks. Default LCD Grid.</p>
+                  <p class="field-hint">Aparência dos blocos dos dígitos. Padrão: grade LCD.</p>
                 </div>
                 <div class="field" style="margin-bottom:0">
-                  <label class="field-label" for="tetrisAnimStyle">Change animation</label>
+                  <label class="field-label" for="tetrisAnimStyle">Animação de mudança</label>
                   <div class="select-wrap">
                     <select name="tetrisAnimStyle" id="tetrisAnimStyle">
-                      <option value="0">Drop-in Slabs</option>
-                      <option value="1">Falling Dots</option>
+                      <option value="0" %SEL_TETRISANIMSTYLE_0%>Placas caindo</option>
+                      <option value="1" %SEL_TETRISANIMSTYLE_1%>Pontos caindo</option>
                     </select>
                   </div>
-                  <p class="field-hint">How a digit rebuilds on change. Default Falling Dots.</p>
+                  <p class="field-hint">Como o dígito é reconstruído ao mudar. Padrão: pontos caindo.</p>
                 </div>
                 <div class="field" style="margin-bottom:0">
-                  <label class="field-label" for="tetrisDotOrder">Dot build order</label>
+                  <label class="field-label" for="tetrisDotOrder">Ordem de construção dos pontos</label>
                   <div class="select-wrap">
                     <select name="tetrisDotOrder" id="tetrisDotOrder">
-                      <option value="0">Bottom-up</option>
-                      <option value="1">Random</option>
+                      <option value="0" %SEL_TETRISDOTORDER_0%>De baixo para cima</option>
+                      <option value="1" %SEL_TETRISDOTORDER_1%>Aleatória</option>
                     </select>
                   </div>
-                  <p class="field-hint">How dots fill in to form the digit. Default Bottom-up.</p>
+                  <p class="field-hint">Como os pontos preenchem o dígito. Padrão: de baixo para cima.</p>
                 </div>
                 <div class="field" style="margin-bottom:0">
-                  <label class="field-label" for="tetrisDatePosition">Date position</label>
+                  <label class="field-label" for="tetrisDatePosition">Posição da data</label>
                   <div class="select-wrap">
                     <select name="tetrisDatePosition" id="tetrisDatePosition">
-                      <option value="0">Top</option>
-                      <option value="1">Bottom</option>
+                      <option value="0" %SEL_TETRISDATEPOSITION_0%>Acima</option>
+                      <option value="1" %SEL_TETRISDATEPOSITION_1%>Abaixo</option>
                     </select>
                   </div>
                 </div>
               </div>
               <label class="check-row standalone" style="margin-top:16px">
-                <input type="checkbox" name="tetrisIdleTumble" id="tetrisIdleTumble">
+                <input type="checkbox" name="tetrisIdleTumble" id="tetrisIdleTumble" %CHK_TETRISIDLETUMBLE%>
                 <span class="check-box" aria-hidden="true"></span>
-                <span class="check-text"><strong>Block game</strong><span class="ct-hint">Auto-playing Tetris fills the bottom while idle (forces a centred, dateless clock). Default on.</span></span>
+                <span class="check-text"><strong>Jogo de blocos</strong><span class="ct-hint">O Tetris automático preenche a parte inferior quando ocioso e força um relógio centralizado sem data. Padrão: ativado.</span></span>
               </label>
               <label class="check-row standalone" style="margin-top:12px">
-                <input type="checkbox" name="tetrisSmallClock" id="tetrisSmallClock">
+                <input type="checkbox" name="tetrisSmallClock" id="tetrisSmallClock" %CHK_TETRISSMALLCLOCK%>
                 <span class="check-box" aria-hidden="true"></span>
-                <span class="check-text"><strong>Small corner clock</strong><span class="ct-hint">Shrink the clock to a corner and give the block game the full panel, so the stack can pile much higher before it resets. Turns the Block game on. Default off.</span></span>
+                <span class="check-text"><strong>Relógio pequeno no canto</strong><span class="ct-hint">Reduz o relógio para um canto e libera o painel inteiro para o jogo de blocos. Ativa o jogo de blocos. Padrão: desativado.</span></span>
               </label>
               <div class="field" id="tetrisSmallClockField" style="display:none;margin-top:12px;margin-bottom:0">
-                <label class="field-label" for="tetrisSmallClockPos">Small clock corner</label>
+                <label class="field-label" for="tetrisSmallClockPos">Canto do relógio pequeno</label>
                 <div class="select-wrap">
                   <select name="tetrisSmallClockPos" id="tetrisSmallClockPos">
-                    <option value="0">Top-left</option>
-                    <option value="1">Top-right</option>
+                    <option value="0" %SEL_TETRISSMALLCLOCKPOS_0%>Superior esquerdo</option>
+                    <option value="1" %SEL_TETRISSMALLCLOCKPOS_1%>Superior direito</option>
                   </select>
                 </div>
-                <p class="field-hint">Which corner the small clock sits in.</p>
+                <p class="field-hint">Define em qual canto o relógio pequeno ficará.</p>
               </div>
               <label class="check-row standalone" style="margin-top:12px">
-                <input type="checkbox" name="tetrisSmoothGame" id="tetrisSmoothGame">
+                <input type="checkbox" name="tetrisSmoothGame" id="tetrisSmoothGame" %CHK_TETRISSMOOTHGAME%>
                 <span class="check-box" aria-hidden="true"></span>
-                <span class="check-text"><strong>Smooth play</strong><span class="ct-hint">Block game plays near-perfectly so rows stay flat and lines clear cleanly. Default off.</span></span>
+                <span class="check-text"><strong>Jogo suave</strong><span class="ct-hint">O jogo de blocos joga quase perfeitamente, mantendo as linhas planas e limpando-as corretamente. Padrão: desativado.</span></span>
               </label>
               <label class="check-row standalone" style="margin-top:12px">
-                <input type="checkbox" name="tetrisDigitBounce" id="tetrisDigitBounce">
+                <input type="checkbox" name="tetrisDigitBounce" id="tetrisDigitBounce" %CHK_TETRISDIGITBOUNCE%>
                 <span class="check-box" aria-hidden="true"></span>
-                <span class="check-text"><strong>Digit bounce</strong><span class="ct-hint">New digit bounces after it rebuilds. Default on.</span></span>
+                <span class="check-text"><strong>Quicar dígito</strong><span class="ct-hint">O novo dígito quica depois de ser reconstruído. Padrão: ativado.</span></span>
               </label>
               <label class="check-row standalone" style="margin-top:12px">
-                <input type="checkbox" name="tetrisShowDate" id="tetrisShowDate">
+                <input type="checkbox" name="tetrisShowDate" id="tetrisShowDate" %CHK_TETRISSHOWDATE%>
                 <span class="check-box" aria-hidden="true"></span>
-                <span class="check-text"><strong>Show date</strong><span class="ct-hint">Uncheck for a cleaner screen. Default on.</span></span>
+                <span class="check-text"><strong>Mostrar data</strong><span class="ct-hint">Desative para uma tela mais limpa. Padrão: ativado.</span></span>
               </label>
             </div>
 
             <!-- Asteroids (style 10) -->
-            <div class="subcard" id="asteroidsSettings" style="display:none">
+            <div class="subcard" id="asteroidsSettings" style="display:%DSP_CLOCKSTYLE_10%">
               <div class="grid-2">
                 <div class="field" style="margin-bottom:0">
                   <label class="field-label" for="asteroidsShipSpeed">Ship speed</label>
                   <div class="range-row">
-                    <input type="range" name="asteroidsShipSpeed" id="asteroidsShipSpeed" min="5" max="25" step="1" value="" data-div="10" data-fixed="1">
-                    <span class="range-val" data-for="asteroidsShipSpeed"></span>
+                    <input type="range" name="asteroidsShipSpeed" id="asteroidsShipSpeed" min="5" max="25" step="1" value="%V_ASTEROIDSSHIPSPEED%" data-div="10" data-fixed="1">
+                    <span class="range-val" data-for="asteroidsShipSpeed">%F_ASTEROIDSSHIPSPEED%</span>
                   </div>
                   <p class="field-hint">Thrust and drift speed of the ship. Default 1.2.</p>
                 </div>
                 <div class="field" style="margin-bottom:0">
                   <label class="field-label" for="asteroidsRockSpeed">Asteroid speed</label>
                   <div class="range-row">
-                    <input type="range" name="asteroidsRockSpeed" id="asteroidsRockSpeed" min="3" max="20" step="1" value="" data-div="10" data-fixed="1">
-                    <span class="range-val" data-for="asteroidsRockSpeed"></span>
+                    <input type="range" name="asteroidsRockSpeed" id="asteroidsRockSpeed" min="3" max="20" step="1" value="%V_ASTEROIDSROCKSPEED%" data-div="10" data-fixed="1">
+                    <span class="range-val" data-for="asteroidsRockSpeed">%F_ASTEROIDSROCKSPEED%</span>
                   </div>
                   <p class="field-hint">How fast the rocks drift. Default 0.8.</p>
                 </div>
                 <div class="field" style="margin-bottom:0">
                   <label class="field-label" for="asteroidsRockCount">Asteroid count</label>
                   <div class="range-row">
-                    <input type="range" name="asteroidsRockCount" id="asteroidsRockCount" min="1" max="4" step="1" value="">
-                    <span class="range-val" data-for="asteroidsRockCount"></span>
+                    <input type="range" name="asteroidsRockCount" id="asteroidsRockCount" min="1" max="4" step="1" value="%V_ASTEROIDSROCKCOUNT%">
+                    <span class="range-val" data-for="asteroidsRockCount">%V_ASTEROIDSROCKCOUNT%</span>
                   </div>
                   <p class="field-hint">Wireframe rocks on screen. Default 2.</p>
                 </div>
               </div>
               <label class="check-row standalone" style="margin-top:16px">
-                <input type="checkbox" name="asteroidsShowDate" id="asteroidsShowDate">
+                <input type="checkbox" name="asteroidsShowDate" id="asteroidsShowDate" %CHK_ASTEROIDSSHOWDATE%>
                 <span class="check-box" aria-hidden="true"></span>
                 <span class="check-text"><strong>Show date</strong><span class="ct-hint">Off gives the ship the whole screen and centres the clock. Default off.</span></span>
               </label>
               <label class="check-row standalone" style="margin-top:12px">
-                <input type="checkbox" name="asteroidsTransparent" id="asteroidsTransparent">
+                <input type="checkbox" name="asteroidsTransparent" id="asteroidsTransparent" %CHK_ASTEROIDSTRANSPARENT%>
                 <span class="check-box" aria-hidden="true"></span>
                 <span class="check-text"><strong>Transparent digits</strong><span class="ct-hint">Rocks and ship fly through the digits instead of dodging solid time plates. Default on.</span></span>
               </label>
             </div>
 
             <!-- Dino Runner (style 11) -->
-            <div class="subcard" id="dinoSettings" style="display:none">
+            <div class="subcard" id="dinoSettings" style="display:%DSP_CLOCKSTYLE_11%">
               <div class="grid-2">
                 <div class="field" style="margin-bottom:0">
                   <label class="field-label" for="dinoSpeed">Run speed</label>
                   <div class="range-row">
-                    <input type="range" name="dinoSpeed" id="dinoSpeed" min="5" max="30" step="1" value="" data-div="10" data-fixed="1">
-                    <span class="range-val" data-for="dinoSpeed"></span>
+                    <input type="range" name="dinoSpeed" id="dinoSpeed" min="5" max="30" step="1" value="%V_DINOSPEED%" data-div="10" data-fixed="1">
+                    <span class="range-val" data-for="dinoSpeed">%F_DINOSPEED%</span>
                   </div>
                   <p class="field-hint">How fast the world scrolls past. Default 1.2.</p>
                 </div>
@@ -561,34 +560,34 @@ static const char PAGE_HTML[] PROGMEM = R"PAGE(<!doctype html>
                   <label class="field-label" for="dinoCactusFreq">Cactus frequency</label>
                   <div class="select-wrap">
                     <select name="dinoCactusFreq" id="dinoCactusFreq">
-                      <option value="0">Rare</option>
-                      <option value="1">Normal</option>
-                      <option value="2">Frequent</option>
+                      <option value="0" %SEL_DINOCACTUSFREQ_0%>Rare</option>
+                      <option value="1" %SEL_DINOCACTUSFREQ_1%>Normal</option>
+                      <option value="2" %SEL_DINOCACTUSFREQ_2%>Frequent</option>
                     </select>
                   </div>
                   <p class="field-hint">How often a cactus rolls in to jump. Default Normal.</p>
                 </div>
               </div>
               <label class="check-row standalone" style="margin-top:16px">
-                <input type="checkbox" name="dinoShowClouds" id="dinoShowClouds">
+                <input type="checkbox" name="dinoShowClouds" id="dinoShowClouds" %CHK_DINOSHOWCLOUDS%>
                 <span class="check-box" aria-hidden="true"></span>
                 <span class="check-text"><strong>Clouds</strong><span class="ct-hint">Parallax clouds drifting in the background. Default on.</span></span>
               </label>
               <label class="check-row standalone" style="margin-top:12px">
-                <input type="checkbox" name="dinoShowDate" id="dinoShowDate">
+                <input type="checkbox" name="dinoShowDate" id="dinoShowDate" %CHK_DINOSHOWDATE%>
                 <span class="check-box" aria-hidden="true"></span>
                 <span class="check-text"><strong>Show date</strong><span class="ct-hint">Off centres the clock above the runner. Default off.</span></span>
               </label>
             </div>
 
             <!-- Matrix Rain (style 12) -->
-            <div class="subcard" id="matrixSettings" style="display:none">
+            <div class="subcard" id="matrixSettings" style="display:%DSP_CLOCKSTYLE_12%">
               <div class="grid-2">
                 <div class="field" style="margin-bottom:0">
                   <label class="field-label" for="matrixRainSpeed">Rain speed</label>
                   <div class="range-row">
-                    <input type="range" name="matrixRainSpeed" id="matrixRainSpeed" min="5" max="30" step="1" value="" data-div="10" data-fixed="1">
-                    <span class="range-val" data-for="matrixRainSpeed"></span>
+                    <input type="range" name="matrixRainSpeed" id="matrixRainSpeed" min="5" max="30" step="1" value="%V_MATRIXRAINSPEED%" data-div="10" data-fixed="1">
+                    <span class="range-val" data-for="matrixRainSpeed">%F_MATRIXRAINSPEED%</span>
                   </div>
                   <p class="field-hint">How fast the glyphs fall. Default 1.2.</p>
                 </div>
@@ -596,52 +595,42 @@ static const char PAGE_HTML[] PROGMEM = R"PAGE(<!doctype html>
                   <label class="field-label" for="matrixRainDensity">Rain density</label>
                   <div class="select-wrap">
                     <select name="matrixRainDensity" id="matrixRainDensity">
-                      <option value="0">Sparse</option>
-                      <option value="1">Normal</option>
-                      <option value="2">Dense</option>
+                      <option value="0" %SEL_MATRIXRAINDENSITY_0%>Sparse</option>
+                      <option value="1" %SEL_MATRIXRAINDENSITY_1%>Normal</option>
+                      <option value="2" %SEL_MATRIXRAINDENSITY_2%>Dense</option>
                     </select>
                   </div>
                   <p class="field-hint">How many columns rain at once. Default Normal.</p>
                 </div>
               </div>
               <label class="check-row standalone" style="margin-top:16px">
-                <input type="checkbox" name="matrixShowDate" id="matrixShowDate">
+                <input type="checkbox" name="matrixShowDate" id="matrixShowDate" %CHK_MATRIXSHOWDATE%>
                 <span class="check-box" aria-hidden="true"></span>
                 <span class="check-text"><strong>Show date</strong><span class="ct-hint">Off centres the clock in the rain. Default off.</span></span>
               </label>
               <label class="check-row standalone" style="margin-top:12px">
-                <input type="checkbox" name="matrixTransparent" id="matrixTransparent">
+                <input type="checkbox" name="matrixTransparent" id="matrixTransparent" %CHK_MATRIXTRANSPARENT%>
                 <span class="check-box" aria-hidden="true"></span>
                 <span class="check-text"><strong>Transparent digits</strong><span class="ct-hint">Rain falls behind the digits instead of solid plates. Default off.</span></span>
-              </label>
-              <label class="check-row standalone" style="margin-top:12px">
-                <input type="checkbox" name="matrixSmoothScroll" id="matrixSmoothScroll">
-                <span class="check-box" aria-hidden="true"></span>
-                <span class="check-text"><strong>Smooth fall</strong><span class="ct-hint">The leading character falls a pixel at a time instead of a whole row. Default off.</span></span>
-              </label>
-              <label class="check-row standalone" style="margin-top:12px">
-                <input type="checkbox" name="matrixSmallClock" id="matrixSmallClock">
-                <span class="check-box" aria-hidden="true"></span>
-                <span class="check-text"><strong>Small clock</strong><span class="ct-hint">Small clock in the top-right corner, date on the left, so the rain keeps the panel. Default off.</span></span>
               </label>
             </div>
 
             <!-- Doom Fire (style 17) -->
-            <div class="subcard" id="doomSettings" style="display:none">
+            <div class="subcard" id="doomSettings" style="display:%DSP_CLOCKSTYLE_17%">
               <div class="grid-2">
                 <div class="field" style="margin-bottom:0">
                   <label class="field-label" for="doomFlameHeight">Digit flame height</label>
                   <div class="range-row">
-                    <input type="range" name="doomFlameHeight" id="doomFlameHeight" min="8" max="40" step="1" value="">
-                    <span class="range-val" data-for="doomFlameHeight"></span>
+                    <input type="range" name="doomFlameHeight" id="doomFlameHeight" min="8" max="40" step="1" value="%V_DOOMFLAMEHEIGHT%">
+                    <span class="range-val" data-for="doomFlameHeight">%V_DOOMFLAMEHEIGHT%</span>
                   </div>
                   <p class="field-hint">How far the flames thrown by the digits reach above them, in pixels. Default 20.</p>
                 </div>
                 <div class="field" style="margin-bottom:0">
                   <label class="field-label" for="doomGroundHeight">Ground fire height</label>
                   <div class="range-row">
-                    <input type="range" name="doomGroundHeight" id="doomGroundHeight" min="5" max="40" step="1" value="">
-                    <span class="range-val" data-for="doomGroundHeight"></span>
+                    <input type="range" name="doomGroundHeight" id="doomGroundHeight" min="5" max="40" step="1" value="%V_DOOMGROUNDHEIGHT%">
+                    <span class="range-val" data-for="doomGroundHeight">%V_DOOMGROUNDHEIGHT%</span>
                   </div>
                   <p class="field-hint">How far the fire along the bottom edge reaches, in pixels. Independent of the digits. Default 13.</p>
                 </div>
@@ -649,26 +638,26 @@ static const char PAGE_HTML[] PROGMEM = R"PAGE(<!doctype html>
                   <label class="field-label" for="doomWind">Draught</label>
                   <div class="select-wrap">
                     <select name="doomWind" id="doomWind">
-                      <option value="0">Left (classic)</option>
-                      <option value="1">None</option>
-                      <option value="2">Right</option>
+                      <option value="0" %SEL_DOOMWIND_0%>Left (classic)</option>
+                      <option value="1" %SEL_DOOMWIND_1%>None</option>
+                      <option value="2" %SEL_DOOMWIND_2%>Right</option>
                     </select>
                   </div>
                   <p class="field-hint">Which way the flames lean. Default Left, as in the original effect.</p>
                 </div>
               </div>
               <label class="check-row standalone" style="margin-top:16px">
-                <input type="checkbox" name="doomBurningDigits" id="doomBurningDigits">
+                <input type="checkbox" name="doomBurningDigits" id="doomBurningDigits" %CHK_DOOMBURNINGDIGITS%>
                 <span class="check-box" aria-hidden="true"></span>
                 <span class="check-text"><strong>Burning digits</strong><span class="ct-hint">The digits feed the fire and throw their own flames. Off leaves a calm ground fire under a plain clock. Default on.</span></span>
               </label>
               <label class="check-row standalone" style="margin-top:12px">
-                <input type="checkbox" name="doomSmoothFire" id="doomSmoothFire">
+                <input type="checkbox" name="doomSmoothFire" id="doomSmoothFire" %CHK_DOOMSMOOTHFIRE%>
                 <span class="check-box" aria-hidden="true"></span>
                 <span class="check-text"><strong>Smooth fire</strong><span class="ct-hint">Softer, flowing flames off the digits instead of the blocky retro ones. The ground fire is left alone either way. Default off.</span></span>
               </label>
               <label class="check-row standalone" style="margin-top:12px">
-                <input type="checkbox" name="doomShowDate" id="doomShowDate">
+                <input type="checkbox" name="doomShowDate" id="doomShowDate" %CHK_DOOMSHOWDATE%>
                 <span class="check-box" aria-hidden="true"></span>
                 <span class="check-text"><strong>Show date</strong><span class="ct-hint">Off centres the clock in the fire. Default off.</span></span>
               </label>
@@ -676,9 +665,9 @@ static const char PAGE_HTML[] PROGMEM = R"PAGE(<!doctype html>
             </div>
 
             <!-- Weather Clock (style 14) -->
-            <div class="subcard" id="weatherSettings" style="display:none">
+            <div class="subcard" id="weatherSettings" style="display:%DSP_CLOCKSTYLE_14%">
               <label class="check-row standalone">
-                <input type="checkbox" name="weatherEnabled" id="weatherEnabled">
+                <input type="checkbox" name="weatherEnabled" id="weatherEnabled" %CHK_WEATHERENABLED%>
                 <span class="check-box" aria-hidden="true"></span>
                 <span class="check-text"><strong>Enable weather updates</strong><span class="ct-hint">Fetches conditions from Open-Meteo every 10 minutes (needs internet). Also adds a weather screen to Cycle All.</span></span>
               </label>
@@ -693,79 +682,79 @@ static const char PAGE_HTML[] PROGMEM = R"PAGE(<!doctype html>
               <div class="grid-2" style="margin-top:12px">
                 <div class="field" style="margin-bottom:0">
                   <label class="field-label" for="weatherLat">Latitude</label>
-                  <input type="number" name="weatherLat" id="weatherLat" step="0.0001" min="-90" max="90" value="">
+                  <input type="number" name="weatherLat" id="weatherLat" step="0.0001" min="-90" max="90" value="%V_WEATHERLAT%">
                 </div>
                 <div class="field" style="margin-bottom:0">
                   <label class="field-label" for="weatherLon">Longitude</label>
-                  <input type="number" name="weatherLon" id="weatherLon" step="0.0001" min="-180" max="180" value="">
+                  <input type="number" name="weatherLon" id="weatherLon" step="0.0001" min="-180" max="180" value="%V_WEATHERLON%">
                 </div>
               </div>
               <label class="check-row standalone" style="margin-top:16px">
-                <input type="checkbox" name="weatherFahrenheit" id="weatherFahrenheit">
+                <input type="checkbox" name="weatherFahrenheit" id="weatherFahrenheit" %CHK_WEATHERF%>
                 <span class="check-box" aria-hidden="true"></span>
                 <span class="check-text"><strong>Fahrenheit</strong><span class="ct-hint">Off shows Celsius.</span></span>
               </label>
               <div class="field" style="margin:16px 0 0">
                 <label class="field-label" for="weatherApiKey">API key (optional)</label>
-                <input type="text" name="weatherApiKey" id="weatherApiKey" maxlength="32" value="" placeholder="Leave empty for the free endpoint">
+                <input type="text" name="weatherApiKey" id="weatherApiKey" maxlength="32" value="%V_WEATHERKEY%" placeholder="Leave empty for the free endpoint">
                 <p class="field-hint">Only needed with an Open-Meteo commercial subscription.</p>
               </div>
             </div>
           </div>
 
           <div class="card">
-            <h2 class="card-title">Time &amp; date</h2>
+            <h2 class="card-title">Hora e data</h2>
             <div class="grid-2">
               <div class="field" style="margin-bottom:0">
-                <label class="field-label" for="use24Hour">Time format</label>
+                <label class="field-label" for="use24Hour">Formato da hora</label>
                 <div class="select-wrap">
                   <select name="use24Hour" id="use24Hour">
-                    <option value="1">24-hour &middot; 14:30</option>
-                    <option value="0">12-hour &middot; 2:30 PM</option>
+                    <option value="1" %SEL_USE24HOUR%>24-hour &middot; 14:30</option>
+                    <option value="0" %SEL_USE24HOUR_NOT%>12-hour &middot; 2:30 PM</option>
                   </select>
                 </div>
               </div>
               <div class="field" style="margin-bottom:0">
-                <label class="field-label" for="dateFormat">Date format</label>
+                <label class="field-label" for="dateFormat">Formato da data</label>
                 <div class="select-wrap">
                   <select name="dateFormat" id="dateFormat">
-                    <option value="0">DD/MM/YYYY</option>
-                    <option value="1">MM/DD/YYYY</option>
-                    <option value="2">YYYY-MM-DD</option>
-                    <option value="3">DD.MM.YYYY</option>
+                    <option value="0" %SEL_DATEFORMAT_0%>DD/MM/YYYY</option>
+                    <option value="1" %SEL_DATEFORMAT_1%>MM/DD/YYYY</option>
+                    <option value="2" %SEL_DATEFORMAT_2%>YYYY-MM-DD</option>
+                    <option value="3" %SEL_DATEFORMAT_3%>DD.MM.YYYY</option>
                   </select>
                 </div>
               </div>
             </div>
           </div>
-          <div id="colorsClock"></div>
+          %COLOR_GLOBAL%
         </section>
 
         <!-- DISPLAY -->
         <section class="page" data-page="display">
           <div class="page-header">
-            <h1 class="page-h1">Display</h1>
+            <h1 class="page-h1">Tela</h1>
             <p class="page-lede">Tune brightness, the clock colon, refresh behaviour and scheduled night dimming.</p>
           </div>
 
           <div class="card">
-            <h2 class="card-title">Clock colon</h2>
+            <h2 class="card-title">Dois-pontos do relógio</h2>
             <div class="grid-2">
               <div class="field" style="margin-bottom:0">
                 <label class="field-label" for="colonBlinkMode">Clock colon</label>
                 <div class="select-wrap">
                   <select name="colonBlinkMode" id="colonBlinkMode">
-                    <option value="0">Solid</option>
-                    <option value="1">Blinking</option>
-                    <option value="2">Off</option>
+                    <option value="0" %SEL_COLONBLINKMODE_0%>Solid</option>
+                    <option value="1" %SEL_COLONBLINKMODE_1%>Blinking</option>
+                    <option value="2" %SEL_COLONBLINKMODE_2%>Off</option>
                   </select>
                 </div>
               </div>
               <div class="field" style="margin-bottom:0">
                 <label class="field-label" for="colonBlinkRate">Blink rate</label>
                 <div class="range-row">
-                  <input type="range" name="colonBlinkRate" id="colonBlinkRate" min="5" max="50" step="5" value="" data-div="10" data-fixed="1" data-suffix="Hz">
-                  <span class="range-val" data-for="colonBlinkRate"></span>
+                  <input type="range" name="colonBlinkRate" id="colonBlinkRate" min="5" max="50" step="5" value="%V_COLONBLINKRATE%" data-div="10" data-fixed="1" data-suffix="Hz">
+                  <span class="range-val" data-for="colonBlinkRate">%F_COLONBLINKRATE%Hz</span>
                 </div>
                   <p class="field-hint">Blink speed. 1.0 Hz is once per second.</p>
               </div>
@@ -777,81 +766,81 @@ static const char PAGE_HTML[] PROGMEM = R"PAGE(<!doctype html>
           </div>
 
           <div class="card">
-            <h2 class="card-title">Brightness</h2>
+            <h2 class="card-title">Brilho</h2>
             <div class="field">
               <label class="field-label" for="displayBrightness">Daytime brightness</label>
               <div class="range-row">
-                <input type="range" name="displayBrightness" id="displayBrightness" min="1" max="255" step="5" value="" data-pct="1">
-                <span class="range-val" data-for="displayBrightness"></span>
+                <input type="range" name="displayBrightness" id="displayBrightness" min="%MINBRIGHT%" max="255" step="5" value="%V_DISPLAYBRIGHTNESS%" data-pct="1">
+                <span class="range-val" data-for="displayBrightness">%PCT_DISPLAYBRIGHTNESS%%</span>
               </div>
-              <p class="field-hint">Brightness control (1-100%). The panel can be turned fully off via the runtime API (/api/display/off).</p>
+              <p class="field-hint">%HELP_DISPBRIGHT%</p>
             </div>
           </div>
 
           <div class="card">
-            <h2 class="card-title">Night mode</h2>
+            <h2 class="card-title">Modo noturno</h2>
             <label class="check-row standalone">
-              <input type="checkbox" name="enableScheduledDimming" id="enableScheduledDimming">
+              <input type="checkbox" name="enableScheduledDimming" id="enableScheduledDimming" %CHK_ENABLESCHEDULEDDIMMING%>
               <span class="check-box" aria-hidden="true"></span>
               <span class="check-text"><strong>Scheduled dimming</strong><span class="ct-hint">Automatically dim the panel during set hours.</span></span>
             </label>
-            <div class="subcard" id="nightFields" style="display:none">
+            <div class="subcard" id="nightFields" style="display:%DSP_ENABLESCHEDULEDDIMMING%">
               <div class="grid-2">
                 <div class="field" style="margin-bottom:0">
                   <label class="field-label" for="dimStartTime">Dim from</label>
-                  <input type="time" name="dimStartTime" id="dimStartTime" value="">
+                  <input type="time" name="dimStartTime" id="dimStartTime" value="%V_DIMSTART%">
                 </div>
                 <div class="field" style="margin-bottom:0">
                   <label class="field-label" for="dimEndTime">Until</label>
-                  <input type="time" name="dimEndTime" id="dimEndTime" value="">
+                  <input type="time" name="dimEndTime" id="dimEndTime" value="%V_DIMEND%">
                 </div>
               </div>
               <div class="field" style="margin:18px 0 0">
                 <label class="field-label" for="dimBrightness">Night brightness</label>
                 <div class="range-row">
-                  <input type="range" name="dimBrightness" id="dimBrightness" min="1" max="255" step="5" value="" data-pct="1">
-                  <span class="range-val" data-for="dimBrightness"></span>
+                  <input type="range" name="dimBrightness" id="dimBrightness" min="%MINBRIGHT%" max="255" step="5" value="%V_DIMBRIGHTNESS%" data-pct="1">
+                  <span class="range-val" data-for="dimBrightness">%PCT_DIMBRIGHTNESS%%</span>
                 </div>
-                <p class="field-hint">Brightness level during scheduled dim period (minimum 1%).</p>
+                <p class="field-hint">%HELP_DIMBRIGHT%</p>
               </div>
             </div>
             <label class="check-row standalone" style="margin-top:14px">
-              <input type="checkbox" name="enableScheduledOff" id="enableScheduledOff">
+              <input type="checkbox" name="enableScheduledOff" id="enableScheduledOff" %CHK_ENABLESCHEDULEDOFF%>
               <span class="check-box" aria-hidden="true"></span>
               <span class="check-text"><strong>Scheduled power off</strong><span class="ct-hint">Turn the panel fully dark during set hours to spare the LEDs. Home Assistant can also toggle it live via /api/display/on and /api/display/off.</span></span>
             </label>
-            <div class="subcard" id="offFields" style="display:none">
+            <div class="subcard" id="offFields" style="display:%DSP_ENABLESCHEDULEDOFF%">
               <div class="grid-2">
                 <div class="field" style="margin-bottom:0">
                   <label class="field-label" for="offStartTime">Off from</label>
-                  <input type="time" name="offStartTime" id="offStartTime" value="">
+                  <input type="time" name="offStartTime" id="offStartTime" value="%V_OFFSTART%">
                 </div>
                 <div class="field" style="margin-bottom:0">
                   <label class="field-label" for="offEndTime">Until</label>
-                  <input type="time" name="offEndTime" id="offEndTime" value="">
+                  <input type="time" name="offEndTime" id="offEndTime" value="%V_OFFEND%">
                 </div>
               </div>
             </div>
           </div>
 
           <div class="card">
-            <h2 class="card-title">Ambient screensaver</h2>
+            <h2 class="card-title">Proteção de tela ambiente</h2>
             <div class="field">
               <label class="field-label" for="ambientStyle">Effect</label>
               <div class="select-wrap">
                 <select name="ambientStyle" id="ambientStyle">
-                  <option value="0">Space Invaders</option>
-                  <option value="1">Pac-Man chase</option>
-                  <option value="3">Starfield</option>
-                  <option value="4">Aquarium</option>
-                  <option value="5">Burning room (This is fine)</option>
-                  <option value="6">Custom animation (uploaded)</option>
+                  <option value="0" %SEL_AMBIENTSTYLE_0%>Space Invaders</option>
+                  <option value="1" %SEL_AMBIENTSTYLE_1%>Pac-Man chase</option>
+                  <option value="3" %SEL_AMBIENTSTYLE_3%>Starfield</option>
+                  <option value="4" %SEL_AMBIENTSTYLE_4%>Aquarium</option>
+                  <option value="5" %SEL_AMBIENTSTYLE_5%>Burning room (This is fine)</option>
+                  <option value="6" %SEL_AMBIENTSTYLE_6%>Custom animation (uploaded)</option>
                 </select>
               </div>
             </div>
             <div class="field" id="animCustomField" style="display:none;margin-top:16px">
               <label class="field-label" for="ambientCustomFile">Custom animation</label>
-              <div class="select-wrap"><select name="ambientCustomFile" id="ambientCustomFile" data-cur=""></select></div>
+              <div class="select-wrap"><select name="ambientCustomFile" id="ambientCustomFile" data-cur="%V_AMBIENTCUSTOMFILE%"></select></div>
               <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center">
                 <input type="file" id="animFile" accept=".pca">
                 <button type="button" class="btn" id="animUploadBtn">Upload</button>
@@ -860,7 +849,7 @@ static const char PAGE_HTML[] PROGMEM = R"PAGE(<!doctype html>
               <p class="field-hint" id="animStatus">Convert and preview a GIF on the companion Animations page, or use tools/gif2pca.py. This uploader accepts converted .pca files. Short clips work on 4MB boards.</p>
             </div>
             <label class="check-row standalone" style="margin-top:16px">
-              <input type="checkbox" name="ambientShowClock" id="ambientShowClock">
+              <input type="checkbox" name="ambientShowClock" id="ambientShowClock" %CHK_AMBIENTSHOWCLOCK%>
               <span class="check-box" aria-hidden="true"></span>
               <span class="check-text"><strong>Show small clock</strong><span class="ct-hint">Keeps a small HH:MM in the corner of the effect.</span></span>
             </label>
@@ -870,28 +859,28 @@ static const char PAGE_HTML[] PROGMEM = R"PAGE(<!doctype html>
             </div>
             <p class="field-hint" id="ambRunStatus">Start runs the saved effect until you stop it (or the device reboots). Save first if you changed the effect.</p>
             <label class="check-row standalone" style="margin-top:16px">
-              <input type="checkbox" name="ambientEnabled" id="ambientEnabled">
+              <input type="checkbox" name="ambientEnabled" id="ambientEnabled" %CHK_AMBIENTENABLED%>
               <span class="check-box" aria-hidden="true"></span>
               <span class="check-text"><strong>Scheduled ambient mode</strong><span class="ct-hint">Also show the effect automatically during set hours.</span></span>
             </label>
-            <div class="subcard" id="ambientFields" style="display:none">
+            <div class="subcard" id="ambientFields" style="display:%DSP_AMBIENTENABLED%">
               <div class="grid-2">
                 <div class="field" style="margin-bottom:0">
                   <label class="field-label" for="ambientStartHour">From</label>
-                  <div class="select-wrap"><select name="ambientStartHour" id="ambientStartHour"></select></div>
+                  <div class="select-wrap"><select name="ambientStartHour" id="ambientStartHour">%OPT_AMBSTART%</select></div>
                 </div>
                 <div class="field" style="margin-bottom:0">
                   <label class="field-label" for="ambientEndHour">Until</label>
-                  <div class="select-wrap"><select name="ambientEndHour" id="ambientEndHour"></select></div>
+                  <div class="select-wrap"><select name="ambientEndHour" id="ambientEndHour">%OPT_AMBEND%</select></div>
                 </div>
               </div>
             </div>
           </div>
 
           <div class="card">
-            <h2 class="card-title">Notifications</h2>
+            <h2 class="card-title">Notificações</h2>
             <label class="check-row standalone">
-              <input type="checkbox" name="notifyEnabled" id="notifyEnabled">
+              <input type="checkbox" name="notifyEnabled" id="notifyEnabled" %CHK_NOTIFYENABLED%>
               <span class="check-box" aria-hidden="true"></span>
               <span class="check-text"><strong>Notification banner</strong><span class="ct-hint">Allow POST /api/notify to show a scrolling message over any screen (Home Assistant, scripts).</span></span>
             </label>
@@ -899,8 +888,8 @@ static const char PAGE_HTML[] PROGMEM = R"PAGE(<!doctype html>
               <label class="field-label" for="notifyPosition">Banner position</label>
               <div class="select-wrap">
                 <select name="notifyPosition" id="notifyPosition">
-                  <option value="0">Bottom</option>
-                  <option value="1">Top</option>
+                  <option value="0" %SEL_NOTIFYPOSITION_0%>Bottom</option>
+                  <option value="1" %SEL_NOTIFYPOSITION_1%>Top</option>
                 </select>
               </div>
               <p class="field-hint">Default edge for the banner. A request can override it per message.</p>
@@ -911,61 +900,61 @@ static const char PAGE_HTML[] PROGMEM = R"PAGE(<!doctype html>
         <!-- AUDIO VISUALIZER -->
         <section class="page" data-page="viz">
           <div class="page-header">
-            <h1 class="page-h1">Audio visualizer</h1>
-            <p class="page-lede">Retro effects driven by your PC's sound. Needs the companion app running with its <strong>Audio visualizer</strong> option enabled.</p>
+            <h1 class="page-h1">Visualizador de áudio</h1>
+            <p class="page-lede">Efeitos retrô controlados pelo som do PC. O app Companion precisa estar aberto com a opção <strong>Visualizador de áudio</strong> ativada.</p>
           </div>
 
           <div class="card">
-            <h2 class="card-title">Effect</h2>
+            <h2 class="card-title">Efeito</h2>
             <div class="field">
-              <label class="field-label" for="vizStyle">Visualizer style</label>
-              <div class="select-wrap"><select name="vizStyle" id="vizStyle"><option value="0">Classic EQ</option><option value="1">Neon Mirror</option><option value="2">Phosphor Waterfall</option><option value="3">Purple LED Stage</option><option value="5">Starfield Overdrive</option><option value="6">Oscilloscope</option></select></div>
-              <p class="field-hint">Classic EQ: original bars. Neon Mirror: cyan and magenta pulses. Phosphor Waterfall: scrolling green and amber trails. Purple LED Stage: curved purple and pink LED waves pulsing with the music. Starfield Overdrive: persistent music-pulsing trails, short hyperspace bursts and bright star tips. Oscilloscope: the live waveform on a lab-scope graticule with a phosphor trail; needs the companion app from this release. Save settings to apply.</p>
+              <label class="field-label" for="vizStyle">Estilo do visualizador</label>
+              <div class="select-wrap"><select name="vizStyle" id="vizStyle">%OPT_VIZSTYLE%</select></div>
+              <p class="field-hint">EQ clássico: barras originais. Espelho neon: pulsos ciano e magenta. Cascata de fósforo: rastros verdes e âmbar. Palco LED roxo: ondas LED roxas e rosas pulsando com a música. Starfield Overdrive: rastros persistentes, rajadas curtas e estrelas brilhantes. Osciloscópio: forma de onda ao vivo em uma grade de laboratório. AudioMotion Clone: linhas contínuas espelhadas em tela inteira, inspiradas no visualizador AudioMotion. Barras espelhadas legado: versão anterior. Salve para aplicar.</p>
             </div>
             <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
-              <button type="button" class="btn" id="vizStartBtn">Start visualizer</button>
-              <button type="button" class="btn" id="vizStopBtn">Stop / back to normal</button>
+              <button type="button" class="btn" id="vizStartBtn">Iniciar visualizador</button>
+              <button type="button" class="btn" id="vizStopBtn">Parar / voltar ao normal</button>
             </div>
-            <p class="field-hint" id="vizRunStatus">Runs until you stop it; returns to normal mode if the audio stream stops for 10s (and resumes when the stream returns).</p>
+              <p class="field-hint" id="vizRunStatus">Executa até você pará-lo; volta ao modo normal se o áudio parar por 10 s e retoma quando o fluxo retornar.</p>
             <label class="check-row standalone" style="margin-top:12px">
-              <input type="checkbox" name="vizShowClock" id="vizShowClock">
+              <input type="checkbox" name="vizShowClock" id="vizShowClock" %CHK_VIZSHOWCLOCK%>
               <span class="check-box" aria-hidden="true"></span>
-              <span class="check-text"><strong>Show small clock</strong><span class="ct-hint">Keeps a small HH:MM in the corner over the bars.</span></span>
+                <span class="check-text"><strong>Mostrar relógio pequeno</strong><span class="ct-hint">Mantém um pequeno HH:MM no canto sobre as barras.</span></span>
             </label>
           </div>
 
           <div class="card" id="vizOptionsCard">
-            <h2 class="card-title">Colors and options</h2>
+            <h2 class="card-title">Cores e opções</h2>
             <div id="vizClassicColors" style="display:none">
-              <p class="field-hint">Colors below apply to Classic EQ. The other styles use their own palettes.</p>
-              <div style="margin-top:8px"><div id="colorsViz"></div></div>
+              <p class="field-hint">As cores abaixo se aplicam ao EQ clássico. Os outros estilos usam suas próprias paletas.</p>
+              <div style="margin-top:8px">%COLOR_VIZ%</div>
             </div>
             <div id="vizScopeOptions" style="display:none">
               <p class="field-hint">Oscilloscope colors. Defaults: green graticule, yellow trace, red at full deflection.</p>
-              <div style="margin-top:8px"><div id="colorsScope"></div></div>
+              <div style="margin-top:8px">%COLOR_SCOPE%</div>
               <label class="check-row standalone" style="margin-top:12px">
-                <input type="checkbox" name="scopeGrid" id="scopeGrid">
+                <input type="checkbox" name="scopeGrid" id="scopeGrid" %CHK_SCOPEGRID%>
                 <span class="check-box" aria-hidden="true"></span>
                 <span class="check-text"><strong>Show graticule</strong><span class="ct-hint">The grid and centre line behind the trace. Default on.</span></span>
               </label>
               <label class="check-row standalone" style="margin-top:8px">
-                <input type="checkbox" name="scopeFill" id="scopeFill">
+                <input type="checkbox" name="scopeFill" id="scopeFill" %CHK_SCOPEFILL%>
                 <span class="check-box" aria-hidden="true"></span>
                 <span class="check-text"><strong>Fill to centre line</strong><span class="ct-hint">Solid silhouette instead of a bare line. Default off.</span></span>
               </label>
               <label class="check-row standalone" style="margin-top:8px">
-                <input type="checkbox" name="scopeFlat" id="scopeFlat">
+                <input type="checkbox" name="scopeFlat" id="scopeFlat" %CHK_SCOPEFLAT%>
                 <span class="check-box" aria-hidden="true"></span>
                 <span class="check-text"><strong>Flat trace color</strong><span class="ct-hint">One color everywhere instead of fading to the deflection color. Default off.</span></span>
               </label>
               <div class="field" style="margin-top:12px">
                 <label class="field-label" for="scopeTrail">Phosphor trail</label>
-                <div class="select-wrap"><select name="scopeTrail" id="scopeTrail"></select></div>
+                <div class="select-wrap"><select name="scopeTrail" id="scopeTrail">%OPT_SCOPETRAIL%</select></div>
                 <p class="field-hint">Ghost traces behind the live one. 0 is a single sharp line, 4 smears the most. Default 3.</p>
               </div>
               <div class="field" style="margin-top:12px">
                 <label class="field-label" for="scopeGain">Vertical gain (%)</label>
-                <input type="number" name="scopeGain" id="scopeGain" min="50" max="200" step="5" value="">
+                <input type="number" name="scopeGain" id="scopeGain" min="50" max="200" step="5" value="%V_SCOPEGAIN%">
                 <p class="field-hint">Trace height, 50 to 200. Above 100 the loud parts flatten against the edges. Default 100.</p>
               </div>
               <label class="check-row standalone" style="margin-top:12px">
@@ -980,20 +969,20 @@ static const char PAGE_HTML[] PROGMEM = R"PAGE(<!doctype html>
         <!-- DISPLAY LAYOUT -->
         <section class="page" data-page="layout">
           <div class="page-header">
-            <h1 class="page-h1">Display layout</h1>
+            <h1 class="page-h1">Layout da tela</h1>
             <p class="page-lede">How metrics are arranged on the display when the PC monitor is streaming. Applies to PC-monitor mode only.</p>
           </div>
 
           <div class="card">
-            <h2 class="card-title">Clock &amp; rows</h2>
+            <h2 class="card-title">Relógio e linhas</h2>
             <div class="grid-2">
               <div class="field">
                 <label class="field-label" for="clockPosition">Clock position</label>
                 <div class="select-wrap">
                   <select name="clockPosition" id="clockPosition">
-                    <option value="0">Center (top)</option>
-                    <option value="1">Left column &middot; row 1</option>
-                    <option value="2">Right column &middot; row 1</option>
+                    <option value="0" %SEL_CLOCKPOSITION_0%>Center (top)</option>
+                    <option value="1" %SEL_CLOCKPOSITION_1%>Left column &middot; row 1</option>
+                    <option value="2" %SEL_CLOCKPOSITION_2%>Right column &middot; row 1</option>
                   </select>
                 </div>
               </div>
@@ -1001,53 +990,53 @@ static const char PAGE_HTML[] PROGMEM = R"PAGE(<!doctype html>
                 <label class="field-label" for="rowMode">Row mode</label>
                 <div class="select-wrap">
                   <select name="rowMode" id="rowMode">
-                    <option value="0">5 rows &middot; 13px (optimised)</option>
-                    <option value="1">6 rows &middot; 10px (compact)</option>
-                    <option value="2">Large 2-row (double size)</option>
-                    <option value="3">Large 3-row (double size)</option>
+                    <option value="0" %SEL_DISPLAYROWMODE_0%>5 rows &middot; 13px (optimised)</option>
+                    <option value="1" %SEL_DISPLAYROWMODE_1%>6 rows &middot; 10px (compact)</option>
+                    <option value="2" %SEL_DISPLAYROWMODE_2%>Large 2-row (double size)</option>
+                    <option value="3" %SEL_DISPLAYROWMODE_3%>Large 3-row (double size)</option>
                   </select>
                 </div>
               </div>
             </div>
             <div class="field">
               <label class="field-label" for="clockOffset">Clock offset (px)</label>
-              <input type="number" name="clockOffset" id="clockOffset" value="" min="-20" max="20">
+              <input type="number" name="clockOffset" id="clockOffset" value="%V_CLOCKOFFSET%" min="-20" max="20">
               <p class="field-hint">Fine-tune the horizontal clock position, -20 to +20 pixels.</p>
             </div>
             <label class="check-row standalone">
-              <input type="checkbox" name="showClock" id="showClock" value="1">
+              <input type="checkbox" name="showClock" id="showClock" value="1" %CHK_SHOWCLOCK%>
               <span class="check-box" aria-hidden="true"></span>
               <span class="check-text"><strong>Show clock in metrics view</strong></span>
             </label>
           </div>
 
           <div class="card">
-            <h2 class="card-title">Number formats</h2>
+            <h2 class="card-title">Formatos numéricos</h2>
             <div class="check-list">
               <label class="check-row">
-                <input type="checkbox" name="rpmKFormat" id="rpmKFormat">
+                <input type="checkbox" name="rpmKFormat" id="rpmKFormat" %CHK_USERPMKFORMAT%>
                 <span class="check-box" aria-hidden="true"></span>
                 <span class="check-text"><strong>K-format for RPM</strong><span class="ct-hint">Show <code>1.8K</code> instead of <code>1800RPM</code> for fans and pumps.</span></span>
               </label>
               <label class="check-row">
-                <input type="checkbox" name="netMBFormat" id="netMBFormat">
+                <input type="checkbox" name="netMBFormat" id="netMBFormat" %CHK_USENETWORKMBFORMAT%>
                 <span class="check-box" aria-hidden="true"></span>
                 <span class="check-text"><strong>M-format for network</strong><span class="ct-hint">Show <code>1.2M</code> instead of <code>1200KB/s</code>.</span></span>
               </label>
             </div>
           </div>
-          <div id="colorsPc"></div>
+          %COLOR_PCMETRICS%
         </section>
 
         <!-- VISIBLE METRICS -->
         <section class="page" data-page="metrics">
           <div class="page-header">
-            <h1 class="page-h1">Visible metrics</h1>
+            <h1 class="page-h1">Métricas visíveis</h1>
             <p class="page-lede">Assign each metric to a position on the display. Applies to PC-monitor mode only.</p>
           </div>
 
           <div class="card">
-            <h2 class="card-title">Display preview</h2>
+            <h2 class="card-title">Pré-visualização da tela</h2>
             <div class="crt oled-preview">
               <div class="oled-pv-head">
                 <span class="ttl">preview</span>
@@ -1073,37 +1062,37 @@ static const char PAGE_HTML[] PROGMEM = R"PAGE(<!doctype html>
         <!-- NETWORK -->
         <section class="page" data-page="network">
           <div class="page-header">
-            <h1 class="page-h1">Network</h1>
+            <h1 class="page-h1">Rede</h1>
             <p class="page-lede">Device name, mDNS hostname and how the device gets its IP address.</p>
           </div>
 
           <div class="card">
-            <h2 class="card-title">Identity</h2>
+            <h2 class="card-title">Identidade</h2>
             <div class="field" style="margin-bottom:0">
               <label class="field-label" for="deviceName">Device name</label>
-              <input type="text" name="deviceName" id="deviceName" value="" maxlength="31" pattern="^[a-zA-Z][a-zA-Z0-9-]*$">
-              <p class="field-hint">Reachable at <code><span id="hostPreview"></span>.local</code>. Letters, numbers and hyphens only.</p>
+              <input type="text" name="deviceName" id="deviceName" value="%V_DEVICENAME%" maxlength="31" pattern="^[a-zA-Z][a-zA-Z0-9-]*$">
+              <p class="field-hint">Reachable at <code><span id="hostPreview">%V_DEVICENAME%</span>.local</code>. Letters, numbers and hyphens only.</p>
             </div>
           </div>
 
           <div class="card">
-            <h2 class="card-title">IP address</h2>
+            <h2 class="card-title">Endereço IP</h2>
             <div class="field">
               <label class="field-label" for="useStaticIP">Address mode</label>
               <div class="select-wrap">
                 <select name="useStaticIP" id="useStaticIP">
-                  <option value="0">DHCP &middot; automatic</option>
-                  <option value="1">Static IP</option>
+                  <option value="0" %SEL_USESTATICIP_NOT%>DHCP &middot; automatic</option>
+                  <option value="1" %SEL_USESTATICIP%>Static IP</option>
                 </select>
               </div>
             </div>
-            <div class="subcard" id="staticFields" style="display:none">
+            <div class="subcard" id="staticFields" style="display:%DSP_USESTATICIP%">
               <div class="grid-2">
-                <div class="field" style="margin-bottom:0"><label class="field-label" for="staticIP">Static IP</label><input type="text" name="staticIP" id="staticIP" value="" placeholder="192.168.1.100" pattern="^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$"></div>
-                <div class="field" style="margin-bottom:0"><label class="field-label" for="gateway">Gateway</label><input type="text" name="gateway" id="gateway" value="" placeholder="192.168.1.1" pattern="^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$"></div>
-                <div class="field" style="margin-bottom:0"><label class="field-label" for="subnet">Subnet mask</label><input type="text" name="subnet" id="subnet" value="" placeholder="255.255.255.0" pattern="^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$"></div>
-                <div class="field" style="margin-bottom:0"><label class="field-label" for="dns1">Primary DNS</label><input type="text" name="dns1" id="dns1" value="" placeholder="8.8.8.8" pattern="^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$"></div>
-                <div class="field" style="margin-bottom:0"><label class="field-label" for="dns2">Secondary DNS</label><input type="text" name="dns2" id="dns2" value="" placeholder="8.8.4.4" pattern="^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$"></div>
+                <div class="field" style="margin-bottom:0"><label class="field-label" for="staticIP">Static IP</label><input type="text" name="staticIP" id="staticIP" value="%V_STATICIP%" placeholder="192.168.1.100" pattern="^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$"></div>
+                <div class="field" style="margin-bottom:0"><label class="field-label" for="gateway">Gateway</label><input type="text" name="gateway" id="gateway" value="%V_GATEWAY%" placeholder="192.168.1.1" pattern="^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$"></div>
+                <div class="field" style="margin-bottom:0"><label class="field-label" for="subnet">Subnet mask</label><input type="text" name="subnet" id="subnet" value="%V_SUBNET%" placeholder="255.255.255.0" pattern="^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$"></div>
+                <div class="field" style="margin-bottom:0"><label class="field-label" for="dns1">Primary DNS</label><input type="text" name="dns1" id="dns1" value="%V_DNS1%" placeholder="8.8.8.8" pattern="^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$"></div>
+                <div class="field" style="margin-bottom:0"><label class="field-label" for="dns2">Secondary DNS</label><input type="text" name="dns2" id="dns2" value="%V_DNS2%" placeholder="8.8.4.4" pattern="^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$"></div>
               </div>
             </div>
             <div class="note warn">
@@ -1111,17 +1100,17 @@ static const char PAGE_HTML[] PROGMEM = R"PAGE(<!doctype html>
               <div>Switching to a static IP reboots the device. Make sure the address doesn't clash with anything else on your network.</div>
             </div>
             <label class="check-row standalone" style="margin-top:16px">
-              <input type="checkbox" name="showIPAtBoot" id="showIPAtBoot" value="1">
+              <input type="checkbox" name="showIPAtBoot" id="showIPAtBoot" value="1" %CHK_SHOWIPATBOOT%>
               <span class="check-box" aria-hidden="true"></span>
               <span class="check-text"><strong>Show IP at startup</strong><span class="ct-hint">Display the IP address on the screen for 5 seconds after boot.</span></span>
             </label>
           </div>
 
           <div class="card">
-            <h2 class="card-title">Time servers (NTP)</h2>
+            <h2 class="card-title">Servidores de hora (NTP)</h2>
             <div class="grid-2">
-              <div class="field" style="margin-bottom:0"><label class="field-label" for="ntpServer1">Primary NTP</label><input type="text" name="ntpServer1" id="ntpServer1" value="" maxlength="63" placeholder="pool.ntp.org"></div>
-              <div class="field" style="margin-bottom:0"><label class="field-label" for="ntpServer2">Secondary NTP</label><input type="text" name="ntpServer2" id="ntpServer2" value="" maxlength="63" placeholder="time.nist.gov"></div>
+              <div class="field" style="margin-bottom:0"><label class="field-label" for="ntpServer1">Primary NTP</label><input type="text" name="ntpServer1" id="ntpServer1" value="%V_NTPSERVER1%" maxlength="63" placeholder="pool.ntp.org"></div>
+              <div class="field" style="margin-bottom:0"><label class="field-label" for="ntpServer2">Secondary NTP</label><input type="text" name="ntpServer2" id="ntpServer2" value="%V_NTPSERVER2%" maxlength="63" placeholder="time.nist.gov"></div>
             </div>
             <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
               <button type="button" class="btn" id="ntpTestBtn">Test</button>
@@ -1134,17 +1123,17 @@ static const char PAGE_HTML[] PROGMEM = R"PAGE(<!doctype html>
         <!-- TIMEZONE -->
         <section class="page" data-page="timezone">
           <div class="page-header">
-            <h1 class="page-h1">Timezone</h1>
-            <p class="page-lede">Sets the clock's region. Daylight-saving transitions are handled automatically.</p>
+            <h1 class="page-h1">Fuso horário</h1>
+            <p class="page-lede">Define a região do relógio. O horário de Brasília é usado neste firmware.</p>
           </div>
           <div class="card">
-            <h2 class="card-title">Region</h2>
+            <h2 class="card-title">Região</h2>
             <div class="field" style="margin-bottom:0">
-              <label class="field-label" for="timezoneRegion">Timezone region</label>
+              <label class="field-label" for="timezoneRegion">Região do fuso horário</label>
               <div class="select-wrap">
-                <select name="timezoneRegion" id="timezoneRegion"></select>
+                <select name="timezoneRegion" id="timezoneRegion">%OPT_TZ%</select>
               </div>
-              <p class="field-hint">The system automatically switches between standard and daylight saving time for the selected region.</p>
+              <p class="field-hint">Fuso fixo: Brasília (UTC-03:00), sem horário de verão.</p>
             </div>
           </div>
         </section>
@@ -1152,18 +1141,18 @@ static const char PAGE_HTML[] PROGMEM = R"PAGE(<!doctype html>
         <!-- FIRMWARE -->
         <section class="page" data-page="firmware">
           <div class="page-header">
-            <h1 class="page-h1">Maintenance</h1>
+            <h1 class="page-h1">Manutenção</h1>
             <p class="page-lede">Update firmware over the air, back up or restore your configuration, and reset the device.</p>
           </div>
 
           <div class="card">
-            <h2 class="card-title">Update over the air</h2>
+            <h2 class="card-title">Atualização sem fio</h2>
             <div class="crt oled-preview" style="max-width:360px">
-              <div class="oled-pv-head"><span class="ttl">installed</span><span class="meta" id="fwBoard"></span></div>
+              <div class="oled-pv-head"><span class="ttl">installed</span><span class="meta">%BOARDNAME% &middot; %DISPLAYMODEL%</span></div>
               <dl class="sr-rows" style="position:relative;z-index:1">
-                <div class="sr-row"><dt>version</dt><dd id="fwVer"></dd></div>
-                <div class="sr-row"><dt>built</dt><dd id="fwBuilt"></dd></div>
-                <div class="sr-row"><dt>free heap</dt><dd id="fwHeap"></dd></div>
+                <div class="sr-row"><dt>version</dt><dd>v%VER%</dd></div>
+                <div class="sr-row"><dt>built</dt><dd>%BUILT%</dd></div>
+                <div class="sr-row"><dt>free heap</dt><dd id="fwHeap">%HEAP% KB</dd></div>
               </dl>
             </div>
             <div class="ota-drop" id="otaDrop">
@@ -1183,7 +1172,7 @@ static const char PAGE_HTML[] PROGMEM = R"PAGE(<!doctype html>
           </div>
 
           <div class="card">
-            <h2 class="card-title">Configuration backup</h2>
+            <h2 class="card-title">Backup da configuração</h2>
             <p class="field-hint" style="margin:0 0 14px">Save all settings to a JSON file, or restore them on this or another device.</p>
             <div class="page-actions" style="margin-top:0">
               <button type="button" class="btn" id="exportBtn"><span class="gl"></span> Export config</button>
@@ -1193,7 +1182,7 @@ static const char PAGE_HTML[] PROGMEM = R"PAGE(<!doctype html>
           </div>
 
           <div class="card">
-            <h2 class="card-title">Factory reset</h2>
+            <h2 class="card-title">Restauração de fábrica</h2>
             <div class="note warn">
               <span class="note-k">danger</span>
               <div>Erases <strong>all settings and WiFi credentials</strong> and restarts into AP setup mode. This cannot be undone - export a backup first.</div>
@@ -1217,7 +1206,7 @@ static const char PAGE_HTML[] PROGMEM = R"PAGE(<!doctype html>
   </div>
 </div>
 
-
+  <script>window.SOLED={maxRows:%JS_MAXROWS%,isLarge:%JS_ISLARGE%,minBright:%MINBRIGHT%,ver:"%VER%"};</script>
 <script src="/portal.js?v=%ASSETVER%"></script>
 </body>
 </html>
@@ -1230,13 +1219,14 @@ static const char PORTAL_CSS[] PROGMEM = R"CSS(:root{--paper:#f4f0e7;--paper-2:#
 
 // ============================================================================
 //  PORTAL_JS - served verbatim from /portal.js (no %TOKEN% substitution).
-//  Reads the device's values from /api/portal (loadValues/applyValues).
+//  Reads runtime config from window.SOLED (emitted inline in PAGE_HTML).
 // ============================================================================
 static const char PORTAL_JS[] PROGMEM = R"JS(
 (function () {
 'use strict';
 var $  = function (s, r) { return (r || document).querySelector(s); };
 var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
+var CFG = window.SOLED || {};
 var navToggle = $('#navToggle'), navScrim = $('#navScrim');
 function setNav(open) {
 document.documentElement.classList.toggle('nav-open', open);
@@ -1277,9 +1267,8 @@ try { localStorage.setItem('soled_mode', mode); } catch (e) {}
 }
 modeBtns.forEach(function (b) { b.addEventListener('click', function () { setMode(b.dataset.mode); }); });
 try { var m = localStorage.getItem('soled_mode'); if (m) setMode(m); } catch (e) {}
-var saveMeta = $('#saveMeta'), saveBtn = $('#saveBtn');
-var loaded = false;   // true once /api/portal has filled the form
-function markDirty() { if (loaded && saveMeta) { saveMeta.classList.remove('clean'); $('.txt', saveMeta).textContent = 'Unsaved changes'; } }
+var saveMeta = $('#saveMeta');
+function markDirty() { if (saveMeta) { saveMeta.classList.remove('clean'); $('.txt', saveMeta).textContent = 'Unsaved changes'; } }
 function markClean(txt) { if (saveMeta) { saveMeta.classList.add('clean'); $('.txt', saveMeta).textContent = txt || 'All saved'; } }
 var form = $('#cfgForm');
 form.addEventListener('input', markDirty);
@@ -1295,13 +1284,12 @@ span.textContent = (inp.value / div).toFixed(fixed) + suf;
 }
 $$('input[type="range"]').forEach(function (inp) { fmtRange(inp); inp.addEventListener('input', function () { fmtRange(inp); }); });
 function toggle(el, on) { if (el) el.style.display = on ? '' : 'none'; }
-var syncs = [];   // what shows or hides with a value: run again once the values are in
 var nightChk = $('#enableScheduledDimming');
-if (nightChk) { var fn = function () { toggle($('#nightFields'), nightChk.checked); }; nightChk.addEventListener('change', fn); syncs.push(fn); }
+if (nightChk) { var fn = function () { toggle($('#nightFields'), nightChk.checked); }; nightChk.addEventListener('change', fn); fn(); }
 var offChk = $('#enableScheduledOff');
-if (offChk) { var fo = function () { toggle($('#offFields'), offChk.checked); }; offChk.addEventListener('change', fo); syncs.push(fo); }
+if (offChk) { var fo = function () { toggle($('#offFields'), offChk.checked); }; offChk.addEventListener('change', fo); fo(); }
 var ambChk = $('#ambientEnabled');
-if (ambChk) { var fa = function () { toggle($('#ambientFields'), ambChk.checked); }; ambChk.addEventListener('change', fa); syncs.push(fa); }
+if (ambChk) { var fa = function () { toggle($('#ambientFields'), ambChk.checked); }; ambChk.addEventListener('change', fa); fa(); }
 function ambCall(path, okMsg) {
 fetch(path).then(function (r) { return r.json(); })
 .then(function () { var s = $('#ambRunStatus'); if (s) s.textContent = okMsg; })
@@ -1342,7 +1330,8 @@ if (vizScopeO) vizScopeO.style.display = (v === '6') ? '' : 'none';
 if (vizOptCard) vizOptCard.style.display = (v === '0' || v === '6') ? '' : 'none';
 }
 if (vizStyleSel) vizStyleSel.addEventListener('change', syncVizPanels);
-syncs.push(syncVizPanels);
+syncVizPanels();
+animRefresh();
 var animUp = $('#animUploadBtn');
 if (animUp) animUp.addEventListener('click', function () {
 var fi = $('#animFile');
@@ -1366,15 +1355,15 @@ fetch(path).then(function (r) { return r.json(); })
 .catch(function () { var s = $('#vizRunStatus'); if (s) s.textContent = 'Request failed - is the device reachable?'; });
 }
 var vizStart = $('#vizStartBtn');
-if (vizStart) vizStart.addEventListener('click', function () { vizCall('/api/mode/viz', 'Visualizer running. Start the companion audio stream if the panel says no audio data.'); });
+if (vizStart) vizStart.addEventListener('click', function () { vizCall('/api/mode/viz', 'Visualizador ativo. Inicie o fluxo de áudio do Companion se o painel informar que não há dados.'); });
 var vizStop = $('#vizStopBtn');
-if (vizStop) vizStop.addEventListener('click', function () { vizCall('/api/mode/auto', 'Back to normal mode.'); });
+if (vizStop) vizStop.addEventListener('click', function () { vizCall('/api/mode/auto', 'Voltando ao modo normal.'); });
 var staticSel = $('#useStaticIP');
-if (staticSel) { var fs = function () { toggle($('#staticFields'), staticSel.value === '1'); }; staticSel.addEventListener('change', fs); syncs.push(fs); }
+if (staticSel) { var fs = function () { toggle($('#staticFields'), staticSel.value === '1'); }; staticSel.addEventListener('change', fs); fs(); }
 var marioEnc = $('#marioIdleEncounters');
-if (marioEnc) { var fe = function () { toggle($('#marioEncFields'), marioEnc.checked); }; marioEnc.addEventListener('change', fe); syncs.push(fe); }
+if (marioEnc) { var fe = function () { toggle($('#marioEncFields'), marioEnc.checked); }; marioEnc.addEventListener('change', fe); fe(); }
 var tetSmallClk = $('#tetrisSmallClock');
-if (tetSmallClk) { var ftsc = function () { toggle($('#tetrisSmallClockField'), tetSmallClk.checked); }; tetSmallClk.addEventListener('change', ftsc); syncs.push(ftsc); }
+if (tetSmallClk) { var ftsc = function () { toggle($('#tetrisSmallClockField'), tetSmallClk.checked); }; tetSmallClk.addEventListener('change', ftsc); ftsc(); }
 var STYLE_PANELS = { '0':'marioSettings','3':'spaceSettings','4':'spaceSettings','5':'pongSettings','6':'pacmanSettings','7':'snakeSettings','8':'tetrisSettings','10':'asteroidsSettings','11':'dinoSettings','12':'matrixSettings','14':'weatherSettings','16':'tronSettings','17':'doomSettings' };
 var ALL_PANELS = ['marioSettings','spaceSettings','pongSettings','pacmanSettings','snakeSettings','tetrisSettings','asteroidsSettings','dinoSettings','matrixSettings','weatherSettings','tronSettings'];
 var clockStyle = $('#clockStyle');
@@ -1393,7 +1382,7 @@ var c = document.getElementById(show + 'Colors'); if (c) c.style.display = '';
 var dc = document.querySelector('.digitc[data-ds="' + clockStyle.value + '"]');
 if (dc) dc.style.display = '';
 }
-if (clockStyle) { clockStyle.addEventListener('change', syncClockPanels); syncs.push(syncClockPanels); }
+if (clockStyle) { clockStyle.addEventListener('change', syncClockPanels); syncClockPanels(); }
 var wgBtn = $('#weatherGeoBtn');
 if (wgBtn) wgBtn.addEventListener('click', function () {
 var q = $('#weatherCity').value.trim(); if (!q) return;
@@ -1418,8 +1407,8 @@ var sh = $('#srHost'); if (sh) sh.textContent = v;
 });
 var metricsData = [];
 var DEVTIME = '12:34';
-var MAX_ROWS = 5;
-var IS_LARGE = false;
+var MAX_ROWS = CFG.maxRows || 5;
+var IS_LARGE = !!CFG.isLarge;
 function rowGeom() {
 var rm = parseInt($('#rowMode').value, 10);
 IS_LARGE = (rm >= 2);
@@ -1766,17 +1755,12 @@ if (data.metrics) data.metrics.forEach(function (d) { var m = byId(d.id); if (m)
 renderFrame();
 }).catch(function () {});
 }
-// The layout editor is built from the device's row mode, so it waits for the
-// values: the page is static now, /metrics can answer before /api/portal does,
-// and a metric placed outside row mode 0's grid would fall back to "None".
-function loadMetrics() {
 fetch('/metrics').then(function (r) { return r.json(); }).then(function (data) {
 if (data.time) DEVTIME = data.time;
 if (data.metrics && data.metrics.length) { metricsData = data.metrics; renderMetrics(); buildDropCells(); buildChipTray(); renderFrame(); }
 else { $('#metricsList').innerHTML = '<p class="field-hint">No metrics received yet. Start the companion app on your PC.</p>'; buildDropCells(); buildChipTray(); renderFrame(); }
 setInterval(pollMetrics, 1500);
 }).catch(function () { $('#metricsList').innerHTML = '<p class="field-hint">Could not load metrics from the device.</p>'; });
-}
 form.addEventListener('submit', function (e) {
 e.preventDefault();
 saveFormState();
@@ -1877,14 +1861,10 @@ return (d > 0 ? d + 'd ' : '') + p2(h) + ':' + p2(m) + ':' + p2(s);
 
 var cycleInput = $('#cycleConfig'), cycleRows = $('#cycleRows');
 var cycleNames = {0:'Mario',1:'Standard',2:'Large',3:'Space Invaders',5:'Arkanoid',6:'Pac-Man',7:'Snake',8:'Tetris',10:'Asteroids',11:'Dino Runner',12:'Matrix Rain',14:'Weather',15:'Bomberman',16:'TRON',17:'Doom Fire'};
-var cycleItems = [];
-function initCycle() {
- cycleItems = cycleInput.value.split(',').map(function(v) { var p=v.split(':'); return {id:Number(p[0]),seconds:Number(p[1]),enabled:Number(p[1])>0}; });
- if (!cycleItems.some(function(v){return v.id===15;})) cycleItems.push({id:15,seconds:300,enabled:false});
- if (!cycleItems.some(function(v){return v.id===16;})) cycleItems.push({id:16,seconds:300,enabled:false});
- if (!cycleItems.some(function(v){return v.id===17;})) cycleItems.push({id:17,seconds:300,enabled:false});
- drawCycle();
-}
+var cycleItems = cycleInput.value.split(',').map(function(v) { var p=v.split(':'); return {id:Number(p[0]),seconds:Number(p[1]),enabled:Number(p[1])>0}; });
+if (!cycleItems.some(function(v){return v.id===15;})) cycleItems.push({id:15,seconds:300,enabled:false});
+if (!cycleItems.some(function(v){return v.id===16;})) cycleItems.push({id:16,seconds:300,enabled:false});
+if (!cycleItems.some(function(v){return v.id===17;})) cycleItems.push({id:17,seconds:300,enabled:false});
 function saveCycle() { cycleInput.value=cycleItems.map(function(v){return v.id+':'+(v.enabled?v.seconds:0);}).join(','); cycleInput.dispatchEvent(new Event('change',{bubbles:true})); }
 function drawCycle() {
  cycleRows.innerHTML='';
@@ -1901,13 +1881,13 @@ function drawCycle() {
  });
 }
 function showCycle(){ $('#cycleSettings').style.display=$('#clockStyle').value==='9'?'':'none'; }
-$('#clockStyle').addEventListener('change',showCycle);syncs.push(showCycle);
+$('#clockStyle').addEventListener('change',showCycle);drawCycle();showCycle();
 function updateDiagnostics(d) {
- var reset={1:'Power on',3:'Software restart',4:'Panic',5:'Interrupt watchdog',6:'Task watchdog',7:'Watchdog',9:'Brownout'};
- var lines=['Firmware: '+d.version+' ('+d.build+')','Chip: '+d.chip,'Flash: '+(d.flashBytes/1048576).toFixed(0)+' MiB','Firmware size: '+Math.round(d.firmwareBytes/1024)+' KiB','Free heap: '+Math.round(d.freeHeap/1024)+' KiB','Lowest heap: '+Math.round(d.minFreeHeap/1024)+' KiB','Largest block: '+Math.round(d.largestHeapBlock/1024)+' KiB','Storage: '+Math.round(d.animationFreeBytes/1024)+' / '+Math.round(d.animationStorageBytes/1024)+' KiB free','Reset: '+(reset[d.resetReason]||d.resetReason),'Time synced: '+(d.ntpSynced?'yes':'no'),'Animation: '+(d.animationPlaying?'playing':'idle')];
- if(d.animationFailureCode)lines.push('Playback error code: '+d.animationFailureCode);
- if(d.lastAnimationError)lines.push('Last upload error: '+d.lastAnimationError);
- if(d.weatherValid)lines.push('Weather age: '+d.weatherAgeSeconds+'s');
+ var reset={1:'Ligação elétrica',3:'Reinício por software',4:'Pânico',5:'Watchdog de interrupção',6:'Watchdog da tarefa',7:'Watchdog',9:'Queda de tensão'};
+ var lines=['Firmware: '+d.version+' ('+d.build+')','Chip: '+d.chip,'Flash: '+(d.flashBytes/1048576).toFixed(0)+' MiB','Tamanho do firmware: '+Math.round(d.firmwareBytes/1024)+' KiB','Heap livre: '+Math.round(d.freeHeap/1024)+' KiB','Menor heap: '+Math.round(d.minFreeHeap/1024)+' KiB','Maior bloco: '+Math.round(d.largestHeapBlock/1024)+' KiB','Armazenamento: '+Math.round(d.animationFreeBytes/1024)+' / '+Math.round(d.animationStorageBytes/1024)+' KiB livres','Reinício: '+(reset[d.resetReason]||d.resetReason),'Hora sincronizada: '+(d.ntpSynced?'sim':'não'),'Animação: '+(d.animationPlaying?'reproduzindo':'ociosa')];
+ if(d.animationFailureCode)lines.push('Código de erro da reprodução: '+d.animationFailureCode);
+ if(d.lastAnimationError)lines.push('Último erro de upload: '+d.lastAnimationError);
+ if(d.weatherValid)lines.push('Idade do clima: '+d.weatherAgeSeconds+' s');
  $('#diagnosticsText').textContent=lines.join('\n');
 }
 
@@ -1923,97 +1903,9 @@ if (typeof d.freeHeap === 'number') { var fh = $('#fwHeap'); if (fh) fh.textCont
 fetch('/api/status').then(function (r) { return r.json(); }).then(function (d) {
 var led = $('#srLed'), title = $('#srTitle');
 if (led) { led.classList.toggle('online', !!d.pcOnline); led.classList.toggle('offline', !d.pcOnline); }
-if (title) title.textContent = (d.pcOnline ? 'PC online' : 'PC offline') + ' · ' + (d.mode || 'clock');
+if (title) title.textContent = (d.pcOnline ? 'PC conectado' : 'PC desconectado') + ' · ' + ({clock:'relógio',metrics:'métricas',ambient:'ambiente',viz:'visualizador'}[d.mode] || d.mode || 'relógio');
 }).catch(function () {});
 }
-function colorRow(slot, label, hex) {
- return '<label style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:5px 0"><span>' + esc(label) +
-  '</span><input type="color" name="color_' + slot + '" value="' + hex + '"></label>';
-}
-function colorRows(d, style) {
- return d.colorRows.filter(function (r) { return r[1] === style; })
-  .map(function (r) { return colorRow(r[0], r[2], d.spriteColors[r[0]]); }).join('');
-}
-function place(id, html) { var el = $('#' + id); if (el) el.innerHTML = html; }
-function buildColors(d) {
- // The Clock page's card: each style's sprite rows and its time-digit row, both
- // revealed by syncClockPanels(), as buildColorsCard() used to emit them.
- var html = '<div class="card"><h2 class="card-title">Colors</h2>';
- d.styleCards.forEach(function (c) {
-  var rows = colorRows(d, c[0]);
-  if (rows) html += '<div id="' + c[1] + 'Colors" style="display:none">' + rows + '</div>';
- });
- d.digitRows.forEach(function (r) {
-  html += '<div class="digitc" data-ds="' + r[0] + '" style="display:none">' +
-   colorRow(r[1], 'Time digits + colon', d.spriteColors[r[1]]) + '</div>';
- });
- html += '<label style="display:flex;align-items:center;gap:8px;margin-top:12px">' +
-  '<input type="checkbox" name="resetSpriteColors" value="1"> Reset all sprite colors to defaults</label></div>';
- place('colorsClock', html);
- var pc = colorRows(d, -2);
- place('colorsPc', pc ? '<div class="card"><h2 class="card-title">Colors</h2>' + pc + '</div>' : '');
- place('colorsViz', colorRows(d, -3));
- place('colorsScope', colorRows(d, -4));
-}
-function fillOptions(sel, list) {
- if (!sel) return;
- sel.innerHTML = '';
- list.forEach(function (o) { var e = document.createElement('option'); e.value = o[0]; e.textContent = o[1]; sel.appendChild(e); });
-}
-function applyValues(d) {
- var el = form.elements, v = d.form, i, hours = [], trail = [];
- // The minimum first: a range clamps a value below it.
- if (el.namedItem('displayBrightness')) el.namedItem('displayBrightness').min = d.minBright;
- if (el.namedItem('dimBrightness')) el.namedItem('dimBrightness').min = d.minBright;
- for (i = 0; i < 24; i++) hours.push([i, i + ':00']);
- fillOptions(el.namedItem('ambientStartHour'), hours);
- fillOptions(el.namedItem('ambientEndHour'), hours);
- for (i = 0; i <= d.scopeTrailMax; i++) trail.push([i, i + (i === d.scopeTrailDefault ? ' (default)' : '')]);
- fillOptions(el.namedItem('scopeTrail'), trail);
- fillOptions(el.namedItem('timezoneRegion'),
-  [['', '-- Select Region --']].concat(d.timezones.map(function (n, k) { return [k, n]; })));
- buildColors(d);
- Object.keys(v).forEach(function (n) {
-  var c = el.namedItem(n);
-  if (!c) return;
-  if (n === 'ambientCustomFile') c.dataset.cur = v[n];   // its options come from /api/anim/list
-  else if (c.type === 'checkbox') c.checked = !!v[n];
-  else {
-   c.value = v[n];
-   // No option matches: the first, as a select with none marked selected showed.
-   if (c.tagName === 'SELECT' && c.selectedIndex < 0) c.selectedIndex = 0;
-  }
- });
- document.title = 'AnimatedPixelClock - Config Portal v' + d.ver;
- ['tbVer', 'aboutVer', 'fwVer'].forEach(function (id) { var e = $('#' + id); if (e) e.textContent = 'v' + d.ver; });
- var e2 = $('#fwBuilt'); if (e2) e2.textContent = d.built;
- var e3 = $('#fwBoard'); if (e3) e3.textContent = d.board + ' \u00b7 ' + d.displayModel;
- var e4 = $('#srHost'); if (e4) e4.textContent = v.deviceName;
- var e5 = $('#hostPreview'); if (e5) e5.textContent = String(v.deviceName || 'pixelclock').toLowerCase();
- syncs.forEach(function (fn) { fn(); });
- $$('input[type="range"]').forEach(function (inp) { fmtRange(inp); });
- initCycle();
-}
-function loadValues() {
- if (saveBtn) saveBtn.disabled = true;
- markClean('Loading settings...');
- fetch('/api/portal', { cache: 'no-store' }).then(function (r) {
-  if (!r.ok) throw new Error('HTTP ' + r.status);
-  return r.json();
- }).then(function (d) {
-  applyValues(d);
-  loaded = true;
-  if (saveBtn) saveBtn.disabled = false;
-  markClean();
-  animRefresh();
-  loadMetrics();
- }).catch(function (err) {
-  saveMeta.classList.remove('clean');
-  $('.txt', saveMeta).textContent = 'Settings did not load (' + (err && err.message ? err.message : err) + ') - reload the page';
- });
-}
-loadValues();
-
 refreshStatus();
 setInterval(refreshStatus, 5000);
 })();

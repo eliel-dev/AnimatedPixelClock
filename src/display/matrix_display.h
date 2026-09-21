@@ -6,8 +6,8 @@
  * (clearDisplay / draw / display), which this class maps onto the DMA panel.
  *
  * Verified hardware config baked in (Phase 1, real panels):
- *   - 2x Waveshare P2.5 64x64 HUB75E chained = 128x64
- *   - driver FM6126A, clkphase=false (fixes dropped rightmost column)
+ *   - one 128x64 HUB75E panel, 1/32 scan
+ *   - shift-register driver, clkphase=false, latch blanking=2
  *   - internal-SRAM DMA only (NOT PSRAM), double-buffered
  *   - pin map from hub75_pins.h, shared with bringup/hello_matrix.cpp
  */
@@ -19,9 +19,9 @@
 
 #include "hub75_pins.h"
 
-#define HUB75_PANEL_W 64
+#define HUB75_PANEL_W 128
 #define HUB75_PANEL_H 64
-#define HUB75_CHAIN   2   // two panels chained -> 128x64
+#define HUB75_CHAIN   1   // one physical 128x64 panel
 
 // Build the verified panel configuration. Returned by value at static-init time;
 // no hardware is touched until display.begin() (called from initDisplay()).
@@ -33,8 +33,12 @@ inline HUB75_I2S_CFG makeMatrixConfig() {
       HUB75_PIN_A, HUB75_PIN_B, HUB75_PIN_C, HUB75_PIN_D, HUB75_PIN_E,
       HUB75_PIN_LAT, HUB75_PIN_OE, HUB75_PIN_CLK};
   HUB75_I2S_CFG cfg(HUB75_PANEL_W, HUB75_PANEL_H, HUB75_CHAIN, pins);
-  cfg.driver = HUB75_I2S_CFG::FM6126A;  // verified Phase 1
-  cfg.clkphase = false;                 // verified: fixes dropped rightmost column
+  cfg.driver = HUB75_I2S_CFG::SHIFTREG;
+  cfg.i2sspeed = HUB75_I2S_CFG::HZ_10M;
+  cfg.clkphase = false;
+  cfg.latch_blanking = 2;
+  cfg.min_refresh_rate = 60;
+  cfg.setPixelColorDepthBits(6);
   cfg.double_buff = true;               // matches clear/draw/display() frame model
   return cfg;
 }

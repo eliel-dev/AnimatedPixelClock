@@ -1056,9 +1056,9 @@ void displayClockWithPong() {
     display.setTextSize(1);
     display.setCursor(20, 28);
     if (!ntpSynced) {
-      display.print("Syncing time...");
+      display.print("Sincronizando...");
     } else {
-      display.print("Time Error");
+      display.print("Erro de hora");
     }
     return;
   }

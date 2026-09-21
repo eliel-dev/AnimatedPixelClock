@@ -277,7 +277,7 @@ void resetTronAnimation() { initialized=false; }
 void displayClockWithTron() {
   struct tm t;
   if(!getTimeWithTimeout(&t)) {
-    display.setTextSize(1); display.setTextColor(0xFFFF); display.setCursor(20,28); display.print("Syncing time..."); return;
+    display.setTextSize(1); display.setTextColor(0xFFFF); display.setCursor(20,28); display.print("Sincronizando..."); return;
   }
   int hour,minute; bool pm;
   formatTimeForDisplay(t.tm_hour,t.tm_min,hour,minute,pm);

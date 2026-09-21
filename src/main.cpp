@@ -24,7 +24,6 @@
 
 #include "config/config.h"
 #include "utils/utils.h"
-#include "utils/crash_report.h"
 #include "timezones.h"
 
 // ========== External Objects ==========
@@ -67,7 +66,6 @@ int getOptimalRefreshRate();
 #include "clocks/clock_globals.h"
 #include "metrics/metrics.h"
 #include "network/network.h"
-#include "network/tls_psram.h"
 #include "notify/notify.h"
 #include "viz/visualizer.h"
 #include "weather/weather.h"
@@ -210,14 +208,8 @@ void cycleClockScreens() {
 
 // ========== setup() ==========
 void setup() {
-  // Before anything opens TLS - see network/tls_psram.cpp
-  tlsUsePsram();
-
   Serial.begin(115200);
   delay(1000);
-
-  // If the last run crashed, keep the core dump summary for /api/info
-  crashReportBegin();
 
   // Load settings from flash
   loadSettings();
@@ -294,6 +286,9 @@ void setup() {
   // Setup web server
   setupWebServer();
 
+  // Background weather fetcher (idles cheaply while weather is disabled)
+  startWeatherTask();
+
   // Show IP address for 5 seconds (configurable via web interface)
   if (displayAvailable && settings.showIPAtBoot) {
     displayConnected();
@@ -314,12 +309,6 @@ void loop() {
 
   // Handle UDP packets - always process to track PC online status accurately
   handleUDP();
-
-  // Background weather fetch: starts a one-shot task when one is due
-  weatherLoop();
-
-  // Crash report: note when this boot started, once the time is synced
-  crashReportLoop();
 
   // Check timeout
   if (millis() - lastReceived > TIMEOUT && metricData.online) {

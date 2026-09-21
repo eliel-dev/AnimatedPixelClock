@@ -231,8 +231,8 @@ def _make_tray():
     return core.pystray.Icon(
         "pc_monitor", img, "PC Monitor (v4)",
         menu=core.pystray.Menu(
-            core.pystray.MenuItem("Configure", on_configure, default=True),
-            core.pystray.MenuItem("Quit", on_quit),
+            core.pystray.MenuItem("Configurar", on_configure, default=True),
+            core.pystray.MenuItem("Sair", on_quit),
         ),
     )
 
@@ -263,8 +263,8 @@ def _tray_ready(icon, notify_startup):
     try:
         icon.visible = True
         if notify_startup:
-            icon.notify("Monitoring your PC in the background. Right-click to configure or quit.",
-                        "PC Monitor is running")
+            icon.notify("Monitorando o PC em segundo plano. Clique com o botão direito para configurar ou sair.",
+                        "PC Monitor em execução")
     except Exception:
         pass
 
