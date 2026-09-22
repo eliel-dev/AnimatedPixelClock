@@ -1,14 +1,18 @@
 """Audio spectrum streamer for the display's visualizer mode.
 
 Captures what the PC is playing (WASAPI loopback on Windows, PulseAudio
-monitor on Linux - both via the `soundcard` package), runs Mica Audio's
-AudioMotion mode-0 analyser in 256-sample hops, and resamples its display
-bands to the 128 physical HUB75 columns. It sends b"FFT2" + 128 amplitude bytes + 128
-waveform bytes,
-~25 packets/s to the same port the stats JSON uses. The waveform tail is what
-the device's oscilloscope style draws; firmware that predates it reads the
-bands and ignores the rest, so the packet stays backwards compatible. The device only shows them in its forced
-visualizer mode (/api/mode/viz), so streaming is harmless otherwise.
+monitor on Linux - both via the `soundcard` package), runs both the legacy
+32-band logarithmic analyzer with AGC (for styles 0, 1, 2, 3, 5, 7) and
+Mica Audio's AudioMotion mode-0 analyzer with Bark scaling and envelope
+smoothing (for style 8 AudioMotion Clone). It sends a binary UDP packet:
+b"FFT3" + 32 legacy amplitude bytes + 128 AudioMotion column bytes + 128
+waveform bytes (292 bytes total) at ~83 packets/s (12 ms blocks) to the same
+port the stats JSON uses.
+
+The waveform tail is what the device's oscilloscope style draws; firmware
+that predates FFT3 accepts legacy FFT1 and FFT2 packets for backward
+compatibility. The device only displays the visualizer in its forced visualizer
+mode (/api/mode/viz), so streaming is harmless otherwise.
 
 With auto-start enabled the streamer also switches the display itself: it
 watches block loudness and calls /api/mode/viz once sound has been playing
@@ -41,18 +45,23 @@ except Exception as e:  # missing package OR no audio backend on this system
     _IMPORT_ERROR = str(e)
 
 RATE = 48000
-FRAMES = 1920            # 40 ms blocks -> 25 packets/s
+FRAMES = 576             # 12 ms capture blocks -> ~83.3 packets/s
+LEGACY_FRAMES = 1920     # 40 ms rolling window for legacy 32-band FFT
 FFT_N = 2048
 HOP_N = 256              # Mica's SpectrumSampleWindow advance size
-# Mica's mode 0 derives its display bands from the canvas, not the preset's
-# legacy 38-band control. 1600 px is the project's reference desktop width;
-# there are no bin collisions at this width for the default 20..1000 Hz range.
-MODE0_VIEWPORT_WIDTH = 1600.0
-BANDS = 128
-F_LO, F_HI = 20.0, 1000.0
-FFT2_MAGIC = b"FFT2"
 
-# Mica Audio DSP pipeline calibration constants
+# Legacy 32-band analyzer calibration constants (matching main)
+LEGACY_BANDS = 32
+LEGACY_F_LO, LEGACY_F_HI = 50.0, 16000.0
+AGC_RANGE_DB = 38.0      # dB span mapped onto 0..255
+AGC_DECAY_DB_PER_S = 1.5
+AGC_FLOOR_DB = -55.0
+
+# Mica Audio DSP pipeline calibration constants (matching audiomotion-clone preset)
+MODE0_VIEWPORT_WIDTH = 1600.0
+BANDS = 128              # Physical HUB75 columns for style 8
+MICA_BANDS = 128
+F_LO, F_HI = 20.0, 1000.0
 DB_FLOOR = -85.0
 DB_CEILING = -25.0
 LINEAR_BOOST = 1.30
@@ -60,6 +69,11 @@ FFT_SMOOTHING = 0.75
 SMOOTHER_RISE = 0.82
 SMOOTHER_FALL = 0.06
 SMOOTHER_DAMPING = 0.30
+
+# UDP packet magics
+FFT1_MAGIC = b"FFT1"
+FFT2_MAGIC = b"FFT2"
+FFT3_MAGIC = b"FFT3"
 
 # Waveform tail for oscilloscope style.
 WAVE_POINTS = 128
@@ -75,31 +89,15 @@ AUTO_STOP_DELAY = 20.0
 AUTO_GAP_S = 1.0         # quiet gaps shorter than this do not re-arm
 SILENT_DB = -120.0
 
-# Packets go out from the capture thread, so the audio device sets the cadence
-# (exactly one block per 40ms). Timer-paced sending is NOT usable here: Windows
-# waits round up to the ~15.6ms tick, giving ~46ms periods that fall behind
-# capture and drop frames. A watchdog thread only fills gaps - it repeats, then
-# fades, the last frame when capture stalls, so a busy CPU costs smoothness
-# rather than blanking the display to "No audio" (the device's timeout is 10s).
-GAP_S = 0.12             # no packet for this long: the watchdog steps in
-HOLD_S = 0.5             # repeat the last frame this long before fading it
-STALL_DECAY = 0.85       # per watchdog packet once fading
-GIVE_UP_S = 6.0          # capture dead this long: stop sending, let the device say so
+# Watchdog timings scaled for 12 ms capture cadence (~83 pps).
+GAP_S = 0.04             # no packet for 40ms (~3.3 blocks): watchdog steps in
+HOLD_S = 0.25            # repeat the last frame 250ms before fading it
+STALL_DECAY = 0.90       # per watchdog packet once fading
+GIVE_UP_S = 6.0          # capture dead this long: stop sending, let device say so
 RETRY_WAITS = (0.25, 0.5, 1.0, 3.0)
 
-# A loopback client that outlives a suspend, an audio-engine restart or a driver
-# reset keeps answering GetNextPacketSize with S_OK and no packets. SoundCard
-# reads that as a card indicating silence and synthesises zeros forever, so
-# nothing raises and nothing reopens: capture looks healthy while the meter sits
-# at SILENT_DB and the bars stay flat until the app is restarted. Reopening is
-# the only way to tell a dead stream from a quiet PC, so a run of silent blocks
-# reopens the recorder. Real silence pays a reopen it cannot hear, and the wait
-# doubles while silence lasts so an idle machine does not churn COM enumeration.
 SILENCE_REOPEN_S = 10.0
 SILENCE_REOPEN_MAX_S = 60.0
-# Blocks arrive every 40ms; the capture thread is frozen while the PC sleeps, so
-# a wall-clock jump this large across one block means we just resumed. Catching
-# it reopens on the first block back instead of waiting out the silence run.
 RESUME_JUMP_S = 5.0
 
 
@@ -118,7 +116,7 @@ def frame_action(age_s):
 
 
 def resample_audio_motion_bands(source):
-    """Mica's endpoint-preserving linear 38->128 spectrum resample."""
+    """Mica's endpoint-preserving linear 42->128 spectrum resample."""
     source = np.asarray(source, dtype=np.float32)
     if source.size == 0:
         return np.zeros(BANDS, dtype=np.uint8)
@@ -173,6 +171,7 @@ def build_mode0_band_ranges(fft_size, sample_rate, min_hz=F_LO, max_hz=F_HI,
     Mode 0 maps FFT bins directly to pixel x positions. Consecutive bins that
     land on the same pixel are aggregated into a single display range; at the
     reference width and frequency range each usable bin gets its own range.
+    For 20..1000 Hz at 48 kHz / 2048 FFT this gives 42 distinct ranges (bins 1..42).
     """
     if np is None:
         return []
@@ -212,7 +211,7 @@ def build_mode0_band_ranges(fft_size, sample_rate, min_hz=F_LO, max_hz=F_HI,
 class EnvelopeSmoother:
     """Two-stage attack/decay smoother with second-order motion damping (matching Mica Audio)."""
 
-    def __init__(self, size, rise=0.82, fall=0.06, damping=0.30):
+    def __init__(self, size, rise=SMOOTHER_RISE, fall=SMOOTHER_FALL, damping=SMOOTHER_DAMPING):
         self.rise = float(np.clip(rise, 0.0, 1.0)) if np else rise
         self.fall = float(np.clip(fall, 0.0, 1.0)) if np else fall
         self.damping = float(np.clip(damping, 0.0, 1.0)) if np else damping
@@ -243,10 +242,7 @@ class EnvelopeSmoother:
 
 def boost_thread_priority():
     """Windows: put this thread on MMCSS "Pro Audio" scheduling and lift its
-    priority, the same treatment media players give their audio threads, so a
-    busy CPU (a compile, a game loading) cannot starve capture into dropped
-    blocks. Returns the MMCSS handle: keep it alive for the thread's lifetime,
-    dropping it reverts the scheduling. No-op elsewhere and on failure."""
+    priority, the same treatment media players give their audio threads."""
     handle = None
     try:
         import ctypes
@@ -259,8 +255,6 @@ def boost_thread_priority():
         handle = avrt.AvSetMmThreadCharacteristicsW("Pro Audio",
                                                     ctypes.byref(task_index)) or None
         kernel32 = ctypes.windll.kernel32
-        # Declare the handle types: left to ctypes' defaults the 64-bit
-        # pseudo-handle overflows an int and the call never happens.
         kernel32.GetCurrentThread.restype = wintypes.HANDLE
         kernel32.SetThreadPriority.argtypes = [wintypes.HANDLE, ctypes.c_int]
         kernel32.SetThreadPriority(kernel32.GetCurrentThread(), 2)  # HIGHEST
@@ -270,9 +264,7 @@ def boost_thread_priority():
 
 
 def boost_process_priority():
-    """Windows: ABOVE_NORMAL for the app while it is streaming. It is idle
-    between 40ms blocks, so this costs nothing and keeps the audio path ahead
-    of ordinary background work."""
+    """Windows: ABOVE_NORMAL for the app while it is streaming."""
     try:
         import ctypes
         from ctypes import wintypes
@@ -302,7 +294,6 @@ def audio_thread_com():
         except OSError as error:
             if (error.winerror & 0xffffffff) != 0x80010106:
                 raise
-            # Already initialized in a different apartment by the host.
     try:
         yield
     finally:
@@ -355,8 +346,6 @@ class VizAutoTrigger:
         if not self.enabled:
             return None
         if level_db >= self.threshold_db:
-            # A gap longer than AUTO_GAP_S counts as a new sound, so short
-            # pops each restart the arming delay.
             if self._last_loud is None or (now - self._last_loud) > AUTO_GAP_S:
                 self._loud_since = now
             self._last_loud = now
@@ -405,35 +394,42 @@ class SpectrumStreamer(threading.Thread):
         self.reopens = 0
         self._capture_mmcss = None   # MMCSS handles: kept alive, not inspected
         self._watchdog_mmcss = None
-        self._last_bands = None   # newest frame, reused by the watchdog
-        self._last_wave = None
-        self._last_frame_at = 0.0
 
-        # State mirrors Mica's SpectrumAnalyzer. Audio is appended in 40 ms
-        # capture blocks but analysed from a 2048-sample rolling window every
-        # 256 samples, so the envelope progresses at the same cadence as Mica.
-        self._window = np.hanning(FFT_N).astype(np.float32)
+        # Legacy 32-band analyzer precomputations (matching main)
+        self._legacy_window = np.hanning(LEGACY_FRAMES).astype(np.float32) if np else None
+        if np:
+            edges = LEGACY_F_LO * (LEGACY_F_HI / LEGACY_F_LO) ** (np.arange(LEGACY_BANDS + 1) / float(LEGACY_BANDS))
+            bin_hz = RATE / float(FFT_N)
+            self._legacy_band_bins = []
+            for i in range(LEGACY_BANDS):
+                lo = int(edges[i] / bin_hz)
+                hi = max(lo + 1, int(edges[i + 1] / bin_hz))
+                self._legacy_band_bins.append((lo, hi))
+        else:
+            self._legacy_band_bins = []
+        self._agc_ref = AGC_FLOOR_DB
+        self._legacy_buffer = np.empty(0, dtype=np.float32) if np else []
+
+        # Mica AudioMotion DSP state
+        self._window = np.hanning(FFT_N).astype(np.float32) if np else None
         self._display_ranges = build_mode0_band_ranges(
-            FFT_N, RATE, F_LO, F_HI, MODE0_VIEWPORT_WIDTH)
-        self._sample_window = np.empty(0, dtype=np.float32)
-
-        # B-weighting power multipliers per FFT bin.
-        self._b_weight = build_b_weighting_multipliers(FFT_N, RATE)
-
-        # Exponential FFT smoothing state (alpha = FFT_SMOOTHING).
+            FFT_N, RATE, F_LO, F_HI, MODE0_VIEWPORT_WIDTH) if np else []
+        self._sample_window = np.empty(0, dtype=np.float32) if np else []
+        self._b_weight = build_b_weighting_multipliers(FFT_N, RATE) if np else None
         self._smoothed_power = None
-
-        # Two-stage envelope smoother (attack/decay/damping).
         self._envelope = EnvelopeSmoother(
             len(self._display_ranges), SMOOTHER_RISE, SMOOTHER_FALL,
-            SMOOTHER_DAMPING)
-
-        # Linear normalization thresholds (matching Mica Audio calibration).
+            SMOOTHER_DAMPING) if np else None
         self._amp_floor = 10.0 ** (DB_FLOOR / 20.0)
         self._amp_ceil = 10.0 ** (DB_CEILING / 20.0)
         self._amp_range = self._amp_ceil - self._amp_floor
+        self._last_mica_bands = np.zeros(BANDS, dtype=np.uint8) if np else None
 
         self._wave_ref = WAVE_AGC_FLOOR
+        self._last_legacy_bands = np.zeros(LEGACY_BANDS, dtype=np.uint8) if np else None
+        self._last_bands = None
+        self._last_wave = None
+        self._last_frame_at = 0.0
 
     def set_target(self, ip, port):
         with self._lock:
@@ -509,7 +505,7 @@ class SpectrumStreamer(threading.Thread):
             uptime = state.get("uptime")
             boot_at = time.monotonic() - uptime if isinstance(uptime, (int, float)) else None
         except Exception:
-            return  # A network outage alone must not override a manual mode change.
+            return
         with self._lock:
             if target != self._target or revision != self._mode_revision:
                 return
@@ -523,64 +519,97 @@ class SpectrumStreamer(threading.Thread):
                 self._mode_pending = "viz"
                 self._mode_retry_at = 0.0
 
+    def _process_legacy_bands(self, mono, dt=None):
+        """Processes 32 logarithmic frequency bands with AGC (exactly matching main)."""
+        if np is None:
+            return None
+        if dt is None:
+            dt = FRAMES / float(RATE)
+        mono = np.asarray(mono, dtype=np.float32).reshape(-1)
+        if mono.size < LEGACY_FRAMES:
+            mono = np.pad(mono, (LEGACY_FRAMES - mono.size, 0))
+        elif mono.size > LEGACY_FRAMES:
+            mono = mono[-LEGACY_FRAMES:]
+
+        spec = np.abs(np.fft.rfft(mono * self._legacy_window, n=FFT_N))
+        amps = np.empty(LEGACY_BANDS, dtype=np.float32)
+        for i, (lo, hi) in enumerate(self._legacy_band_bins):
+            amps[i] = np.sqrt(np.mean(spec[lo:hi] ** 2))
+        db = 20.0 * np.log10(amps + 1e-7)
+
+        peak = float(db.max())
+        self._agc_ref = max(self._agc_ref - AGC_DECAY_DB_PER_S * dt,
+                            peak, AGC_FLOOR_DB)
+        norm = (db - (self._agc_ref - AGC_RANGE_DB)) / AGC_RANGE_DB
+        return np.clip(norm * 255.0, 0, 255).astype(np.uint8)
+
     def _analyse_window(self, samples):
         """Analyse one 2048-sample Mica window and return its Bins128 payload."""
-        # 1. FFT → normalised power spectrum  (Mica FftUtility.PowerSpectrum)
+        # 1. FFT → normalised power spectrum (Mica FftUtility.PowerSpectrum: |X|²/N²)
         fft_out = np.fft.rfft(samples * self._window, n=FFT_N)
         power = (fft_out.real ** 2 + fft_out.imag ** 2) / (FFT_N * FFT_N)
 
-        # 2. Mica's FftSmoothing is the previous-frame weight, not the
-        # current-frame interpolation factor.
+        # 2. Mica's FftSmoothing is the previous-frame weight (0.75)
         if self._smoothed_power is None or self._smoothed_power.shape != power.shape:
             self._smoothed_power = power.copy()
         else:
             self._smoothed_power *= FFT_SMOOTHING
             self._smoothed_power += power * (1.0 - FFT_SMOOTHING)
 
-        # 3. B-weighting  (per Mica's WeightingCurve.BuildPowerMultipliers)
+        # 3. B-weighting (per Mica's WeightingCurve.BuildPowerMultipliers)
         weighted = self._smoothed_power * self._b_weight
 
-        # 4. AudioMotion display bands use a peak aggregate. This is distinct
-        # from Mica's separate 64-band RMS output used by non-display clients.
+        # 4. AudioMotion display bands use peak aggregation across each Bark range
         amps = np.empty(len(self._display_ranges), dtype=np.float32)
         for i, (lo, hi) in enumerate(self._display_ranges):
             segment = weighted[lo:hi]
             amps[i] = np.sqrt(np.max(segment)) if segment.size > 0 else 0.0
 
-        # 5. Linear amplitude normalization  (per Mica's LogBandMapper.NormalizeAmplitude)
+        # 5. Linear amplitude normalization -85..-25 dB x 1.3
         norm = np.clip(
             (amps - self._amp_floor) / self._amp_range * LINEAR_BOOST,
             0.0, 1.0)
 
-        # 6. Envelope smoother  (per Mica's EnvelopeSmoother: rise/fall/damping)
+        # 6. Envelope smoother (rise 0.82 / fall 0.06 / damping 0.30 per hop)
         smoothed = self._envelope.process(norm)
 
-        # 7. Mica LedPayloadFactory's endpoint-preserving display → Bins128
-        # resample, then byte conversion for the UDP protocol.
+        # 7. Endpoint-preserving linear resample 42 -> 128
         return resample_audio_motion_bands(smoothed * 255.0)
 
     def _process_block(self, mono):
-        """Append captured samples and process every Mica 256-sample hop.
-
-        A 40 ms capture block normally yields seven or eight analyses after
-        warm-up. The caller still emits exactly one packet per capture block:
-        the newest frame, as the Mica renderer does.
-        """
+        """Append captured samples, update rolling buffers, run Mica hops and legacy analyzer."""
         samples = np.asarray(mono, dtype=np.float32).reshape(-1)
         if samples.size:
             self._sample_window = np.concatenate((self._sample_window, samples))
+            self._legacy_buffer = np.concatenate((self._legacy_buffer, samples))
+            if self._legacy_buffer.size > LEGACY_FRAMES:
+                self._legacy_buffer = self._legacy_buffer[-LEGACY_FRAMES:]
 
-        latest = None
+        # Mica AudioMotion DSP: process all complete 256-sample hops
+        latest_mica = None
         while self._sample_window.size >= FFT_N:
-            latest = self._analyse_window(self._sample_window[:FFT_N])
+            latest_mica = self._analyse_window(self._sample_window[:FFT_N])
             self._sample_window = self._sample_window[HOP_N:]
 
-        if latest is not None:
-            return latest
-        return np.zeros(BANDS, dtype=np.uint8)
+        if latest_mica is not None:
+            mica_bands = latest_mica
+            self._last_mica_bands = mica_bands
+        elif self._last_mica_bands is not None:
+            mica_bands = self._last_mica_bands
+        else:
+            mica_bands = np.zeros(BANDS, dtype=np.uint8)
 
-    def _process_wave(self, mono):
+        # Legacy 32-band analyzer over rolling 1920-sample window
+        dt = float(samples.size) / float(RATE) if samples.size else (FRAMES / float(RATE))
+        legacy_bands = self._process_legacy_bands(self._legacy_buffer, dt=dt)
+        self._last_legacy_bands = legacy_bands
+
+        return legacy_bands, mica_bands
+
+    def _process_wave(self, mono, dt=None):
         """Trigger-aligned, decimated waveform as offset-binary bytes."""
+        if dt is None:
+            dt = FRAMES / float(RATE)
         usable = (len(mono) // WAVE_DECIM) * WAVE_DECIM
         low = mono[:usable].reshape(-1, WAVE_DECIM).mean(axis=1)
         if len(low) < WAVE_POINTS:
@@ -597,7 +626,6 @@ class SpectrumStreamer(threading.Thread):
                 start = int(rising[0]) + 1
         seg = low[start:start + WAVE_POINTS]
 
-        dt = FRAMES / float(RATE)
         peak = float(np.abs(seg).max())
         self._wave_ref = max(self._wave_ref * (WAVE_AGC_DECAY ** dt), peak,
                              WAVE_AGC_FLOOR)
@@ -612,7 +640,7 @@ class SpectrumStreamer(threading.Thread):
             return SILENT_DB
         return max(SILENT_DB, 20.0 * np.log10(rms))
 
-    def _send_bands(self, bands, wave=None):
+    def _send_bands(self, legacy_bands, mica_bands, wave=None):
         with self._lock:
             target = self._target
         if target is None or self._stop_event.is_set():
@@ -620,7 +648,9 @@ class SpectrumStreamer(threading.Thread):
         if wave is None:
             wave = np.full(WAVE_POINTS, 128, dtype=np.uint8)
         try:
-            packet = (FFT2_MAGIC + bands.astype(np.uint8).tobytes()
+            packet = (FFT3_MAGIC
+                      + legacy_bands.astype(np.uint8).tobytes()
+                      + mica_bands.astype(np.uint8).tobytes()
                       + wave.astype(np.uint8).tobytes())
             self._sock.sendto(packet, target)
             self.last_sent = time.monotonic()
@@ -637,10 +667,11 @@ class SpectrumStreamer(threading.Thread):
                 self._stop_event.wait(GAP_S / 2.0)
                 now = time.monotonic()
                 with self._lock:
-                    bands = self._last_bands
+                    legacy_bands = self._last_legacy_bands
+                    mica_bands = self._last_bands
                     wave = self._last_wave
                     last_frame_at = self._last_frame_at
-                if bands is None or not self.last_sent or now - self.last_sent < GAP_S:
+                if legacy_bands is None or mica_bands is None or not self.last_sent or now - self.last_sent < GAP_S:
                     holding = False
                     continue
                 action = frame_action(now - last_frame_at)
@@ -650,14 +681,16 @@ class SpectrumStreamer(threading.Thread):
                     holding = True
                     self.stalls += 1
                 if action == "decay":
-                    bands = bands * STALL_DECAY
+                    legacy_bands = (legacy_bands.astype(np.float32) * STALL_DECAY).astype(np.uint8)
+                    mica_bands = mica_bands * STALL_DECAY
                     if wave is not None:
                         wave = np.clip((wave.astype(np.float32) - 128.0)
                                        * STALL_DECAY + 128.0, 0, 255).astype(np.uint8)
                     with self._lock:
-                        self._last_bands = bands
+                        self._last_legacy_bands = legacy_bands
+                        self._last_bands = mica_bands
                         self._last_wave = wave
-                self._send_bands(bands, wave)
+                self._send_bands(legacy_bands, mica_bands.astype(np.uint8), wave)
         finally:
             release_thread_priority(self._watchdog_mmcss)
 
@@ -680,7 +713,6 @@ class SpectrumStreamer(threading.Thread):
                         resolved_for = requested
                         resolve_at = now + 30.0
                     except OSError:
-                        # Keep the last good address through a transient DNS failure.
                         resolved_for = requested
                         resolve_at = now + 2.0
                 if now >= check_at:
@@ -689,7 +721,7 @@ class SpectrumStreamer(threading.Thread):
                         with self._lock:
                             self._default_device_id = device_id
                     except Exception:
-                        pass  # Keep capture alive if a control-plane query fails.
+                        pass
                     check_at = now + 10.0
                 if self._stop_event.is_set():
                     break
@@ -728,11 +760,9 @@ class SpectrumStreamer(threading.Thread):
 
     def _capture_loop(self):
         attempt = 0
-        reopen_after = SILENCE_REOPEN_S  # survives reopens, so silence backs off
+        reopen_after = SILENCE_REOPEN_S
         while not self._stop_event.is_set():
             try:
-                # Re-resolve the default output each (re)open, so switching
-                # headphones/speakers is picked up on the next reconnect.
                 spk = sc.default_speaker()
                 with self._lock:
                     self._default_device_id = spk.id
@@ -748,17 +778,18 @@ class SpectrumStreamer(threading.Thread):
                         last_wall = now_wall
                         mono = data.mean(axis=1) if data.ndim > 1 else data
                         mono = mono.astype(np.float32)
-                        bands = self._process_block(mono)
-                        wave = self._process_wave(mono)
+                        legacy_bands, mica_bands = self._process_block(mono)
+                        wave = self._process_wave(self._legacy_buffer)
                         level = self._block_level_db(mono)
                         self.last_level_db = level
                         self.last_error = ""
                         with self._lock:
-                            self._last_bands = bands.astype(np.float32)
+                            self._last_legacy_bands = legacy_bands.copy()
+                            self._last_bands = mica_bands.astype(np.float32)
                             self._last_wave = wave
                             self._last_frame_at = time.monotonic()
                             action = self.auto.feed(level, self._last_frame_at)
-                        self._send_bands(bands, wave)
+                        self._send_bands(legacy_bands, mica_bands, wave)
                         if action:
                             self._send_mode(action)
                         if level > SILENT_DB:
@@ -775,10 +806,9 @@ class SpectrumStreamer(threading.Thread):
                         with self._lock:
                             default_id = self._default_device_id
                         if default_id is not None and default_id != spk.id:
-                            break  # Reopen on the new output, without querying here.
+                            break
             except Exception as e:
                 self.last_error = str(e)
-                # Capture device busy/missing: retry fast first, back off after.
                 self._stop_event.wait(RETRY_WAITS[min(attempt, len(RETRY_WAITS) - 1)])
                 attempt += 1
 

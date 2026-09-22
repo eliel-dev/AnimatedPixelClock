@@ -21,9 +21,11 @@
 // Older ones send the short packet and the scope asks for a companion update.
 #define VIZ_WAVE_PACKET_LEN (VIZ_PACKET_LEN + VIZ_WAVE_POINTS)
 #define VIZ_WAVE_PACKET2_LEN (VIZ_PACKET2_LEN + VIZ_WAVE_POINTS)
+#define VIZ_PACKET3_LEN (4 + VIZ_BANDS + VIZ_AUDIOMOTION_BANDS + VIZ_WAVE_POINTS)
 
 // Consume a UDP packet if it is a spectrum packet. "FFT1" carries 32 legacy
-// bands; "FFT2" carries the 128 physical columns used by AudioMotion Clone.
+// bands; "FFT2" carries the 128 physical columns used by AudioMotion Clone;
+// "FFT3" carries 32 legacy bands + 128 AudioMotion columns + 128 waveform bytes.
 // Returns true when consumed (caller skips JSON parsing and logging).
 bool vizIngest(const uint8_t* buf, int len);
 
@@ -40,6 +42,10 @@ bool vizShouldDisplay();
 // Latest waveform, 128 samples centred on 128. Null if the latest packet has none.
 const uint8_t* vizWaveform();
 uint32_t vizWaveSerial();
+
+// Measured metrics on the device
+uint32_t vizPacketsPerSecond();
+uint32_t vizRenderFps();
 
 // Render one frame of the bar EQ (call at 60 Hz while forced mode active).
 void displayVisualizer();

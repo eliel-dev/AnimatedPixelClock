@@ -235,6 +235,8 @@ void handleStatus() {
  doc["tronBikeStyle"] = settings.tronBikeStyle;
  doc["pcOnline"] = pcOnline;
  doc["uptime"] = millis() / 1000;
+ doc["vizPps"] = vizPacketsPerSecond();
+ doc["vizFps"] = vizRenderFps();
 
  String json;
  serializeJson(doc, json);

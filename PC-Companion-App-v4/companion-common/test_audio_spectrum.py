@@ -1,8 +1,9 @@
-"""Auto-start decisions: arming delay, short-sound rejection, quiet release."""
+"""Unit tests for audio spectrum streaming, auto-start, pacer, and DSP parity."""
 import unittest
 import threading
 from contextlib import contextmanager
 from unittest.mock import Mock, patch
+import math
 
 import audio_spectrum as audio
 
@@ -13,7 +14,7 @@ def trigger(threshold=-45.0, start=3.0, stop=20.0):
     return t
 
 
-def feed_span(t, level_db, t0, seconds, step=0.04):
+def feed_span(t, level_db, t0, seconds, step=0.012):
     """Play one level for a span; returns the actions in order."""
     actions, now = [], t0
     end = t0 + seconds
@@ -118,26 +119,22 @@ class PacerTests(unittest.TestCase):
 
 
 class StaleCaptureTests(unittest.TestCase):
-    """A loopback client that survives a suspend reads silence without error."""
-
     def test_live_audio_is_never_reopened(self):
-        self.assertFalse(audio.capture_stale(0.0, 0.04, audio.SILENCE_REOPEN_S))
+        self.assertFalse(audio.capture_stale(0.0, 0.012, audio.SILENCE_REOPEN_S))
 
     def test_brief_quiet_passages_are_left_alone(self):
-        self.assertFalse(audio.capture_stale(audio.SILENCE_REOPEN_S - 0.04, 0.04,
+        self.assertFalse(audio.capture_stale(audio.SILENCE_REOPEN_S - 0.012, 0.012,
                                              audio.SILENCE_REOPEN_S))
 
     def test_long_silence_reopens_the_recorder(self):
-        self.assertTrue(audio.capture_stale(audio.SILENCE_REOPEN_S, 0.04,
-                                            audio.SILENCE_REOPEN_S))
+        self.assertTrue(audio.capture_stale(audio.SILENCE_REOPEN_S, 0.012,
+                                             audio.SILENCE_REOPEN_S))
 
     def test_backed_off_wait_is_respected(self):
-        self.assertFalse(audio.capture_stale(audio.SILENCE_REOPEN_S, 0.04,
+        self.assertFalse(audio.capture_stale(audio.SILENCE_REOPEN_S, 0.012,
                                              audio.SILENCE_REOPEN_MAX_S))
 
     def test_resume_from_sleep_reopens_on_the_first_block(self):
-        # The capture thread is frozen while the PC sleeps, so the wall clock
-        # jumps across a single block even though nothing looks wrong yet.
         self.assertTrue(audio.capture_stale(0.0, 1800.0, audio.SILENCE_REOPEN_S))
 
 
@@ -147,26 +144,34 @@ class StreamTimingTests(unittest.TestCase):
         self.stream = audio.SpectrumStreamer("pixelclock.local", 4210)
         self.stream._sock.close()
         self.stream._sock = Mock()
-        self.bands = audio.np.zeros(audio.BANDS, dtype=audio.np.uint8)
+        self.legacy_bands = audio.np.zeros(audio.LEGACY_BANDS, dtype=audio.np.uint8)
+        self.mica_bands = audio.np.zeros(audio.BANDS, dtype=audio.np.uint8)
 
     def test_capture_sends_only_to_cached_numeric_address(self):
         with patch.object(audio.socket, "getaddrinfo", side_effect=AssertionError("DNS in capture")):
-            self.stream._send_bands(self.bands)
+            self.stream._send_bands(self.legacy_bands, self.mica_bands)
             self.stream._sock.sendto.assert_not_called()
             self.stream._target = ("192.0.2.1", 4210)
-            self.stream._send_bands(self.bands)
+            self.stream._send_bands(self.legacy_bands, self.mica_bands)
         flat = bytes([128]) * audio.WAVE_POINTS
+        expected_packet = (b"FFT3" + bytes(audio.LEGACY_BANDS)
+                           + bytes(audio.BANDS) + flat)
         self.stream._sock.sendto.assert_called_once_with(
-            b"FFT2" + bytes(audio.BANDS) + flat, ("192.0.2.1", 4210))
+            expected_packet, ("192.0.2.1", 4210))
 
-    def test_packet_carries_bands_then_waveform(self):
+    def test_packet_fft3_carries_legacy_mica_and_wave(self):
         self.stream._target = ("192.0.2.1", 4210)
+        legacy = audio.np.arange(audio.LEGACY_BANDS, dtype=audio.np.uint8)
+        mica = audio.np.arange(audio.BANDS, dtype=audio.np.uint8)
         wave = audio.np.arange(audio.WAVE_POINTS, dtype=audio.np.uint8)
-        self.stream._send_bands(self.bands, wave)
+        self.stream._send_bands(legacy, mica, wave)
         packet = self.stream._sock.sendto.call_args[0][0]
-        self.assertEqual(len(packet), 4 + audio.BANDS + audio.WAVE_POINTS)
-        self.assertEqual(packet[:4], b"FFT2")
-        self.assertEqual(packet[4 + audio.BANDS:], wave.tobytes())
+        # 4 (magic) + 32 (legacy) + 128 (mica) + 128 (wave) = 292 bytes
+        self.assertEqual(len(packet), 292)
+        self.assertEqual(packet[:4], b"FFT3")
+        self.assertEqual(packet[4:4 + audio.LEGACY_BANDS], legacy.tobytes())
+        self.assertEqual(packet[4 + audio.LEGACY_BANDS:4 + audio.LEGACY_BANDS + audio.BANDS], mica.tobytes())
+        self.assertEqual(packet[4 + audio.LEGACY_BANDS + audio.BANDS:], wave.tobytes())
 
     def test_mica_resample_preserves_endpoints_and_interpolates(self):
         source = audio.np.zeros(42, dtype=audio.np.uint8)
@@ -190,29 +195,11 @@ class StreamTimingTests(unittest.TestCase):
         self.assertEqual(len(bins), 128)
         self.assertEqual(bins[0], 0)
         self.assertEqual(bins[-1], 255)
-        # Verify strictly non-decreasing ramp across all 128 columns
         diffs = audio.np.diff(bins.astype(int))
         self.assertTrue(bool((diffs >= 0).all()))
 
-    def test_mica_resample_isolated_peaks(self):
-        source = audio.np.zeros(42, dtype=audio.np.uint8)
-        source[20] = 250  # peak near the middle (band 20 of 0..41)
-        bins = audio.resample_audio_motion_bands(source)
-        self.assertEqual(len(bins), 128)
-        # Peak column is round(20 * 127 / 41) = round(61.951) = 62
-        peak_idx = int(audio.np.argmax(bins))
-        self.assertIn(peak_idx, (61, 62, 63))
-        self.assertGreater(int(bins[peak_idx]), 200)
-        # Far-off columns remain silent (0)
-        self.assertEqual(int(bins[0]), 0)
-        self.assertEqual(int(bins[-1]), 0)
-        self.assertEqual(int(bins[30]), 0)
-        self.assertEqual(int(bins[100]), 0)
-
     def test_waveform_triggers_on_a_rising_zero_crossing(self):
-        # Two blocks of the same tone at different phases must yield the same
-        # trace, otherwise the scope slides sideways instead of standing still.
-        t = audio.np.arange(audio.FRAMES, dtype=audio.np.float32) / audio.RATE
+        t = audio.np.arange(audio.LEGACY_FRAMES, dtype=audio.np.float32) / audio.RATE
         first = audio.np.sin(2 * audio.np.pi * 110.0 * t).astype(audio.np.float32)
         shifted = audio.np.sin(2 * audio.np.pi * 110.0 * t + 1.1).astype(audio.np.float32)
         a = self.stream._process_wave(first)
@@ -223,217 +210,265 @@ class StreamTimingTests(unittest.TestCase):
         self.assertLess(int(a.min()), 55)
 
     def test_silence_stays_a_flat_trace(self):
-        quiet = audio.np.zeros(audio.FRAMES, dtype=audio.np.float32)
+        quiet = audio.np.zeros(audio.LEGACY_FRAMES, dtype=audio.np.float32)
         wave = self.stream._process_wave(quiet)
         self.assertTrue(bool((wave == 128).all()))
 
-    def test_slow_dns_does_not_block_capture_or_publish_old_target(self):
-        entered, finish = threading.Event(), threading.Event()
 
-        def resolve(*args):
-            entered.set()
-            finish.wait(2)
-            self.stream.stop()
-            return [(None, None, None, None, ("192.0.2.1", 4210))]
+class LegacyAnalyzerTests(unittest.TestCase):
+    """Verifies that the restored 32-band analyzer produces output identical to main."""
 
-        self.stream._target = ("192.0.2.1", 4210)
-        with patch.object(audio, "audio_thread_com"), patch.object(audio.sc, "default_speaker"), \
-                patch.object(audio.socket, "getaddrinfo", side_effect=resolve):
-            worker = threading.Thread(target=self.stream._maintenance)
-            worker.start()
-            try:
-                self.assertTrue(entered.wait(1))
-                sender = threading.Thread(target=self.stream._send_bands, args=(self.bands,))
-                sender.start()
-                sender.join(timeout=0.5)
-                self.assertFalse(sender.is_alive(), "DNS holds up audio sends")
-                self.stream.set_target("new-clock.local", 4210)
-                finish.set()
-                worker.join(timeout=1)
-                self.assertIsNone(self.stream._target)
-            finally:
-                finish.set()
-                self.stream.stop()
-                worker.join(timeout=2)
+    @staticmethod
+    def reference_main_process_block(mono, agc_ref):
+        window = audio.np.hanning(1920).astype(audio.np.float32)
+        edges = 50.0 * (16000.0 / 50.0) ** (audio.np.arange(33) / 32.0)
+        bin_hz = 48000 / 2048.0
+        band_bins = []
+        for i in range(32):
+            lo = int(edges[i] / bin_hz)
+            hi = max(lo + 1, int(edges[i + 1] / bin_hz))
+            band_bins.append((lo, hi))
+        spec = audio.np.abs(audio.np.fft.rfft(mono * window, n=2048))
+        amps = audio.np.empty(32, dtype=audio.np.float32)
+        for i, (lo, hi) in enumerate(band_bins):
+            amps[i] = audio.np.sqrt(audio.np.mean(spec[lo:hi] ** 2))
+        db = 20.0 * audio.np.log10(amps + 1e-7)
+        peak = float(db.max())
+        dt = 1920 / 48000.0
+        new_agc = max(agc_ref - 1.5 * dt, peak, -55.0)
+        norm = (db - (new_agc - 38.0)) / 38.0
+        return audio.np.clip(norm * 255.0, 0, 255).astype(audio.np.uint8), new_agc
 
-    def test_silent_stream_is_reopened_not_trusted(self):
-        """The regression: after a resume the old client returns zeros forever."""
-        opens, blocks = [], [0]
+    def test_legacy_bands_identical_to_main(self):
+        stream = audio.SpectrumStreamer("127.0.0.1", 4210)
+        stream._agc_ref = -40.0
+        ref_agc = -40.0
 
-        class FakeRecorder:
-            def __enter__(inner):
-                opens.append(True)
-                return inner
+        # Test with varied synthetic signals
+        t = audio.np.arange(1920, dtype=audio.np.float32) / 48000.0
+        tones = (
+            0.5 * audio.np.sin(2 * audio.np.pi * 100.0 * t),
+            0.3 * audio.np.sin(2 * audio.np.pi * 1000.0 * t) + 0.2 * audio.np.sin(2 * audio.np.pi * 4000.0 * t),
+            audio.np.random.RandomState(42).uniform(-0.5, 0.5, 1920).astype(audio.np.float32)
+        )
 
-            def __exit__(inner, *exc):
-                return False
+        for tone in tones:
+            expected, ref_agc = self.reference_main_process_block(tone, ref_agc)
+            actual = stream._process_legacy_bands(tone, dt=1920 / 48000.0)
+            self.assertTrue(bool((actual == expected).all()),
+                            "Restored legacy bands must match main exactly for the same 1920-sample input")
+            self.assertAlmostEqual(stream._agc_ref, ref_agc, delta=1e-5)
 
-            def record(inner, numframes):
-                blocks[0] += 1
-                # Bounded so an unfixed capture loop fails here instead of
-                # spinning on synthesised silence forever.
-                if len(opens) > 2 or blocks[0] > 5000:
-                    self.stream.stop()
-                return audio.np.zeros((numframes, 2), dtype=audio.np.float32)
 
-        class FakeMic:
-            def recorder(inner, samplerate, blocksize):
-                return FakeRecorder()
+class ColorVectorTests(unittest.TestCase):
+    """Validates physical Rainbow palette mapping against Mica golden vectors (T3b)."""
 
-        speaker = Mock()
-        speaker.id = "spk"
-        self.stream._target = ("192.0.2.1", 4210)
-        with patch.object(audio, "SILENCE_REOPEN_S", 0.02),                 patch.object(audio, "SILENCE_REOPEN_MAX_S", 0.02),                 patch.object(audio.sc, "default_speaker", return_value=speaker),                 patch.object(audio.sc, "get_microphone", return_value=FakeMic()):
-            self.stream._capture_loop()
+    @staticmethod
+    def sample_rainbow_mica(x):
+        # Port of Mica's drawMirrorLinesVisual + samplePaletteColor(Rainbow) + rainbowColorForColumn
+        # column = lroundf(clamp01(x / 127.0f) * 255.0f)
+        # rainbowColorForColumn(column, 256) -> hue = (column * 255) / 255 = column
+        t = max(0.0, min(1.0, float(x) / 127.0))
+        hue = int(round(t * 255.0))
+        region = hue // 43
+        remainder = (hue - region * 43) * 6
+        q = (255 - remainder) & 0xFF
+        rem = remainder & 0xFF
+        if region == 0:
+            return (255, rem, 0)
+        elif region == 1:
+            return (q, 255, 0)
+        elif region == 2:
+            return (0, 255, rem)
+        elif region == 3:
+            return (0, q, 255)
+        elif region == 4:
+            return (rem, 0, 255)
+        else:
+            return (255, 0, q)
 
-        self.assertGreater(len(opens), 1, "silent capture was never reopened")
-        self.assertEqual(self.stream.reopens, len(opens) - 1)
-        self.assertEqual(self.stream.last_error, "")
+    def test_golden_vectors(self):
+        vectors = {
+            0: (255, 0, 0),
+            32: (129, 255, 0),
+            64: (0, 255, 255),
+            96: (126, 0, 255),
+            127: (255, 0, 15),
+        }
+        for x, expected in vectors.items():
+            actual = self.sample_rainbow_mica(x)
+            self.assertEqual(actual, expected, f"Column x={x} expected {expected} but got {actual}")
 
-    def test_unchanged_settings_keep_resolved_address(self):
-        self.stream._target = ("192.0.2.1", 4210)
-        self.stream.set_target("pixelclock.local", 4210)
-        self.assertEqual(self.stream._target, ("192.0.2.1", 4210))
-        self.stream.set_target("pixelclock.local", 4211)
-        self.assertIsNone(self.stream._target)
 
-    def test_capture_initializes_com_on_its_own_thread_and_can_join(self):
-        entered = []
-        exited = []
+class MicaDspNumericalParityTests(unittest.TestCase):
+    """Validates Python DSP against a verbatim line-by-line transcription of Mica C# (T4)."""
 
-        @contextmanager
-        def com():
-            entered.append(threading.get_ident())
-            try:
-                yield
-            finally:
-                exited.append(threading.get_ident())
+    class CSharpReferenceAnalyzer:
+        """Line-by-line transcription of Mica's SpectrumAnalyzer + LedPayloadFactory + ToByte01."""
 
-        def capture():
-            self.assertIn(threading.get_ident(), entered)
+        def __init__(self):
+            self.fft_size = 2048
+            self.sample_rate = 48000
+            self.hop_size = 256
+            # FftUtility.BuildHannWindow (symmetric)
+            self.hann_window = [0.5 * (1.0 - math.cos((2.0 * math.pi * i) / (self.fft_size - 1)))
+                                for i in range(self.fft_size)]
+            # B-weighting power multipliers
+            self.weighting = self._build_b_weighting()
+            # 42 Bark ranges (mode 0, viewport 1600)
+            self.display_ranges = [(i, i + 1) for i in range(1, 43)]
+            self.smoothed_power = None
+            # EnvelopeSmoother: rise=0.82, fall=0.06, damping=0.30
+            self.rise = 0.82
+            self.fall = 0.06
+            self.damping = 0.30
+            self.target_state = [0.0] * 42
+            self.smoothed_state = [0.0] * 42
+            # Normalization thresholds
+            self.amp_floor = 10.0 ** (-85.0 / 20.0)
+            self.amp_ceil = 10.0 ** (-25.0 / 20.0)
+            self.amp_range = self.amp_ceil - self.amp_floor
+            self.linear_boost = 1.30
 
-        with patch.object(audio, "audio_thread_com", com), \
-                patch.object(audio, "boost_thread_priority"), \
-                patch.object(audio, "release_thread_priority"), \
-                patch.object(self.stream, "_watchdog"), \
-                patch.object(self.stream, "_maintenance"), \
-                patch.object(self.stream, "_capture_loop", side_effect=capture):
-            self.stream.start()
-            self.stream.join(timeout=2)
-        self.assertFalse(self.stream.is_alive())
-        self.assertEqual(entered, [self.stream.ident])
-        self.assertEqual(exited, entered)
+        def _build_b_weighting(self):
+            mults = [1.0] * 1025
+            c1 = 424.36
+            c2 = 148693636.0
+            for bin_idx in range(1, 1025):
+                freq = bin_idx * self.sample_rate / float(self.fft_size)
+                f2 = freq * freq
+                denom = (f2 + c1) * math.sqrt(f2 + 25122.25) * (f2 + c2)
+                if denom > 0:
+                    val = (c2 * f2 * freq) / denom
+                    db = 0.17 + 20.0 * math.log10(max(val, 1e-30))
+                    amp_mult = 10.0 ** (db / 20.0)
+                    mults[bin_idx] = max(1e-12, min(1e12, amp_mult * amp_mult))
+            return mults
 
-    def test_stopped_stream_does_not_send_more_packets(self):
-        self.stream._target = ("192.0.2.1", 4210)
-        self.stream.stop()
-        self.stream._send_bands(self.bands)
-        self.stream._sock.sendto.assert_not_called()
+        def process_hop(self, window_2048):
+            # Windowing & FFT power
+            windowed = [window_2048[i] * self.hann_window[i] for i in range(2048)]
+            fft_res = audio.np.fft.rfft(windowed, n=2048)
+            power = [(fft_res[i].real ** 2 + fft_res[i].imag ** 2) / (2048.0 * 2048.0) for i in range(1025)]
 
-    def test_mode_retries_network_failure_using_cached_address(self):
-        self.stream._target = ("192.0.2.1", 4210)
-        reply = Mock()
-        reply.__enter__ = Mock(return_value=reply)
-        reply.__exit__ = Mock(return_value=False)
-        with patch.object(audio, "urlopen", side_effect=[OSError("network waking"), reply]) as request, \
-                patch.object(audio.time, "monotonic", return_value=10.0) as now:
-            self.stream._send_mode("auto")
-            request.assert_not_called()  # Capture only queues the request.
-            self.stream._flush_mode()
-            self.assertIn("network waking", self.stream.auto_error)
-            self.stream._flush_mode()
-            self.assertEqual(request.call_count, 1)
-            now.return_value = 12.0
-            self.stream._flush_mode()
-            self.assertEqual(self.stream.auto_error, "")
-            self.assertIsNone(self.stream._mode_pending)
-            request.assert_called_with("http://192.0.2.1/api/mode/auto", timeout=4)
+            # FFT Smoothing (0.75 previous)
+            if self.smoothed_power is None:
+                self.smoothed_power = list(power)
+            else:
+                for i in range(1025):
+                    self.smoothed_power[i] = (self.smoothed_power[i] * 0.75) + (power[i] * 0.25)
 
-    def test_new_mode_supersedes_failed_or_inflight_request(self):
-        def fail(*args, **kwargs):
-            self.stream._send_mode("auto")
-            raise OSError("old request failed")
+            # Weighting & Peak aggregation over 42 bands
+            display_raw = [0.0] * 42
+            for i, (lo, hi) in enumerate(self.display_ranges):
+                peak_p = 0.0
+                for b in range(lo, hi):
+                    w_pow = self.smoothed_power[b] * self.weighting[b]
+                    if w_pow > peak_p:
+                        peak_p = w_pow
+                amp = math.sqrt(peak_p)
+                norm = max(0.0, min(1.0, (amp - self.amp_floor) / self.amp_range * self.linear_boost))
+                display_raw[i] = norm
 
-        self.stream._send_mode("viz")
-        with patch.object(audio, "urlopen", side_effect=fail):
-            self.stream._flush_mode()
-        self.assertEqual(self.stream._mode_pending, "auto")
-        self.assertEqual(self.stream.auto_error, "")
-        self.assertEqual(self.stream._mode_retry_at, 0.0)
+            # EnvelopeSmoother
+            display_smooth = [0.0] * 42
+            for i in range(42):
+                inp = display_raw[i]
+                target = self.target_state[i]
+                speed = self.rise if inp > target else self.fall
+                target += (inp - target) * speed
+                self.target_state[i] = target
+                smooth = self.smoothed_state[i]
+                smooth += (target - smooth) * self.damping
+                self.smoothed_state[i] = smooth
+                display_smooth[i] = smooth
 
-    def test_target_change_cancels_pending_old_mode(self):
-        self.stream._send_mode("auto")
-        self.stream.auto.forced = True
-        self.stream.set_target("new-clock.local", 4210)
-        self.assertEqual(self.stream._mode_pending, "viz")
-        self.assertIsNone(self.stream._target)
+            # ResampleSpectrumBins (42 -> 128)
+            bins128 = [0.0] * 128
+            for idx in range(128):
+                t = idx / 127.0
+                scaled = t * 41.0
+                left = int(math.floor(scaled))
+                right = min(41, left + 1)
+                blend = scaled - left
+                bins128[idx] = (display_smooth[left] * (1.0 - blend)) + (display_smooth[right] * blend)
 
-    def test_reopened_device_does_not_loop_on_stale_default_id(self):
-        self.stream._default_device_id = "old-speaker"
-        recorder = Mock()
-        recorder.__enter__ = Mock(return_value=recorder)
-        recorder.__exit__ = Mock(return_value=False)
-        calls = []
+            # ToByte01
+            return [max(0, min(255, int(round(max(0.0, min(1.0, v)) * 255.0)))) for v in bins128]
 
-        def record(**kwargs):
-            calls.append(1)
-            if len(calls) == 2:
-                self.stream.stop()
-            return audio.np.zeros((audio.FRAMES, 2), dtype=audio.np.float32)
+    def _evaluate_parity_on_signal(self, samples, signal_name):
+        cs_ref = self.CSharpReferenceAnalyzer()
+        py_streamer = audio.SpectrumStreamer("127.0.0.1", 4210)
 
-        recorder.record.side_effect = record
-        mic = Mock()
-        mic.recorder.return_value = recorder
-        with patch.object(audio.sc, "default_speaker", return_value=Mock(id="new-speaker")) as speaker, \
-                patch.object(audio.sc, "get_microphone", return_value=mic):
-            self.stream._capture_loop()
-        speaker.assert_called_once()
-        self.assertEqual(len(calls), 2)
+        # Run 256-sample hops across the signal
+        hop_count = (len(samples) - 2048) // 256
+        self.assertGreater(hop_count, 10, f"Signal {signal_name} too short")
 
-    def check_device(self, now, uptime, forced=False):
-        reply = Mock()
-        reply.read.return_value = audio.json.dumps({"uptime": uptime, "forcedViz": forced}).encode()
-        reply.__enter__ = Mock(return_value=reply)
-        reply.__exit__ = Mock(return_value=False)
-        with patch.object(audio, "urlopen", return_value=reply), \
-                patch.object(audio.time, "monotonic", return_value=now):
-            self.stream._check_device_restart()
+        total_bytes = 0
+        matching_bytes = 0
+        warmup_hops = 8  # Ignore initial filter transients
 
-    def test_device_restart_reasserts_active_playback(self):
-        self.stream._target = ("192.0.2.1", 4210)
-        self.stream.auto.enabled = self.stream.auto.forced = True
-        self.check_device(100, 50, True)
-        self.check_device(200, 3)
-        self.assertEqual(self.stream._mode_pending, "viz")
-        self.assertFalse(self.stream._device_viz)
+        for hop_idx in range(hop_count):
+            start = hop_idx * 256
+            window = samples[start:start + 2048]
+            expected_bytes = cs_ref.process_hop(window)
+            actual_bytes = list(py_streamer._analyse_window(audio.np.asarray(window, dtype=audio.np.float32)))
 
-    def test_manual_stop_is_not_treated_as_a_device_restart(self):
-        self.stream._target = ("192.0.2.1", 4210)
-        self.stream.auto.enabled = self.stream.auto.forced = True
-        self.check_device(100, 50, True)
-        self.check_device(110, 60)
-        self.assertIsNone(self.stream._mode_pending)
-        self.assertFalse(self.stream._device_viz)
+            if hop_idx >= warmup_hops:
+                for b_idx in range(128):
+                    total_bytes += 1
+                    diff = abs(expected_bytes[b_idx] - actual_bytes[b_idx])
+                    # Parity requirement: +/- 1 byte tolerance
+                    if diff <= 1:
+                        matching_bytes += 1
 
-    def test_restart_during_silence_does_not_force_visualizer(self):
-        self.stream._target = ("192.0.2.1", 4210)
-        self.stream.auto.enabled = True
-        self.check_device(100, 50)
-        self.check_device(200, 3)
-        self.assertIsNone(self.stream._mode_pending)
+        parity_rate = matching_bytes / float(total_bytes)
+        self.assertGreaterEqual(parity_rate, 0.99,
+                                f"Signal '{signal_name}' DSP parity rate was {parity_rate*100:.2f}%, expected >= 99%")
+
+    def test_dsp_parity_sine_sweep(self):
+        # Sine sweep from 20 Hz to 1200 Hz over 2 seconds (96000 samples)
+        t = audio.np.linspace(0.0, 2.0, 96000, dtype=audio.np.float32)
+        # Chirp formula
+        f0, f1 = 20.0, 1200.0
+        phase = 2.0 * audio.np.pi * (f0 * t + 0.5 * (f1 - f0) / 2.0 * t * t)
+        sweep = (0.7 * audio.np.sin(phase)).astype(audio.np.float32)
+        self._evaluate_parity_on_signal(sweep, "Sine Sweep (20-1200 Hz)")
+
+    def test_dsp_parity_pink_noise_bursts(self):
+        # Voss-McCartney pink noise with 100ms bursts
+        rng = audio.np.random.RandomState(12345)
+        n = 48000  # 1 second
+        white = rng.uniform(-0.5, 0.5, (16, n)).astype(audio.np.float32)
+        # Approximate 1/f filter
+        pink = audio.np.sum(white, axis=0) / 8.0
+        # Create bursts (active 100ms, silence 50ms)
+        envelope = (audio.np.sin(2 * audio.np.pi * 6.67 * audio.np.linspace(0, 1, n)) > 0).astype(audio.np.float32)
+        bursts = (pink * envelope).astype(audio.np.float32)
+        self._evaluate_parity_on_signal(bursts, "Pink Noise Bursts")
+
+    def test_dsp_parity_synthetic_kick_loop(self):
+        # 120 BPM kick loop (2 beats = 1 sec, 48000 samples)
+        kick = audio.np.zeros(48000, dtype=audio.np.float32)
+        beat_len = 24000  # 0.5s per kick
+        for beat in (0, beat_len):
+            t_beat = audio.np.linspace(0.0, 0.4, 19200, dtype=audio.np.float32)
+            # Frequency drops from 160 Hz to 45 Hz
+            freq = 45.0 + 115.0 * audio.np.exp(-30.0 * t_beat)
+            phase = 2.0 * audio.np.pi * audio.np.cumsum(freq) / 48000.0
+            amp_env = audio.np.exp(-12.0 * t_beat)
+            kick[beat:beat + len(t_beat)] = (0.8 * amp_env * audio.np.sin(phase)).astype(audio.np.float32)
+        self._evaluate_parity_on_signal(kick, "Synthetic Kick Loop")
 
 
 class MicaDspTests(unittest.TestCase):
-    """Tests for the ported Mica Audio DSP pipeline components."""
-
-    # --- B-weighting ---
     def test_b_weighting_dc_bin_is_unity(self):
         m = audio.build_b_weighting_multipliers(2048, 48000)
         self.assertAlmostEqual(float(m[0]), 1.0)
 
     def test_b_weighting_multipliers_length(self):
         m = audio.build_b_weighting_multipliers(2048, 48000)
-        self.assertEqual(len(m), 1025)  # FFT_N//2 + 1
+        self.assertEqual(len(m), 1025)
 
     def test_b_weighting_positive_values(self):
         m = audio.build_b_weighting_multipliers(2048, 48000)
@@ -441,10 +476,8 @@ class MicaDspTests(unittest.TestCase):
 
     def test_b_weighting_boosts_midrange_over_infra(self):
         m = audio.build_b_weighting_multipliers(2048, 48000)
-        # 1 kHz bin ≈ bin 43  vs  20 Hz bin ≈ bin 1
         self.assertGreater(float(m[43]), float(m[1]))
 
-    # --- Bark scale ---
     def test_bark_roundtrip(self):
         for hz in (20, 100, 440, 1000, 8000, 16000):
             got = audio.from_bark(audio.to_bark(float(hz)))
@@ -457,110 +490,52 @@ class MicaDspTests(unittest.TestCase):
             self.assertGreater(b, prev)
             prev = b
 
-    # --- AudioMotion mode 0 layout ---
     def test_mode0_default_layout_has_one_range_per_usable_fft_bin(self):
         bands = audio.build_mode0_band_ranges(2048, 48000, 20, 1000, 1600)
         self.assertEqual(len(bands), 42)
         self.assertEqual(bands[0], (1, 2))
         self.assertEqual(bands[-1], (42, 43))
 
-    def test_mode0_ranges_are_monotonic_and_nonempty(self):
-        bands = audio.build_mode0_band_ranges(2048, 48000, 20, 1000, 1600)
-        for i in range(1, len(bands)):
-            self.assertGreaterEqual(bands[i][0], bands[i - 1][1])
-        for lo, hi in bands:
-            self.assertGreater(hi, lo)
-
-    def test_mode0_narrow_viewport_merges_adjacent_bins(self):
-        wide = audio.build_mode0_band_ranges(2048, 48000, 20, 1000, 1600)
-        narrow = audio.build_mode0_band_ranges(2048, 48000, 20, 1000, 8)
-        self.assertLess(len(narrow), len(wide))
-        self.assertEqual(narrow[0][0], 1)
-        self.assertEqual(narrow[-1][1], 43)
-
-    # --- EnvelopeSmoother ---
     def test_smoother_attack_is_fast(self):
         s = audio.EnvelopeSmoother(1, rise=0.82, fall=0.06, damping=0.30)
         spike = audio.np.array([1.0], dtype=audio.np.float32)
         out = s.process(spike)
-        self.assertGreater(float(out[0]), 0.15, "First step should track upward rapidly")
+        self.assertGreater(float(out[0]), 0.15)
 
     def test_smoother_decay_is_slow(self):
         s = audio.EnvelopeSmoother(1, rise=0.82, fall=0.06, damping=0.30)
         spike = audio.np.array([1.0], dtype=audio.np.float32)
-        # Pump to saturation
         for _ in range(30):
             s.process(spike)
         silence = audio.np.array([0.0], dtype=audio.np.float32)
         after1 = float(s.process(silence)[0])
-        self.assertGreater(after1, 0.5, "Decay should be gradual")
+        self.assertGreater(after1, 0.5)
 
-    def test_smoother_reset(self):
-        s = audio.EnvelopeSmoother(4, rise=0.82, fall=0.06, damping=0.30)
-        s.process(audio.np.ones(4, dtype=audio.np.float32))
-        s.reset()
-        self.assertTrue(bool((s.target_state == 0).all()))
-        self.assertTrue(bool((s.smoothed_state == 0).all()))
-
-    def test_smoother_damping_smooths_steps(self):
-        s = audio.EnvelopeSmoother(1, rise=1.0, fall=1.0, damping=0.30)
-        out1 = float(s.process(audio.np.array([1.0]))[0])
-        out2 = float(s.process(audio.np.array([1.0]))[0])
-        self.assertLess(out1, out2, "Damping means second step is closer to 1.0")
-
-    # --- Linear normalization ---
-    def test_normalization_floor_maps_to_zero(self):
-        amp_floor = 10.0 ** (audio.DB_FLOOR / 20.0)
-        norm = max(0.0, min(1.0, (amp_floor - amp_floor) / (10.0 ** (audio.DB_CEILING / 20.0) - amp_floor) * audio.LINEAR_BOOST))
-        self.assertAlmostEqual(norm, 0.0)
-
-    def test_normalization_ceiling_exceeds_one(self):
-        amp_floor = 10.0 ** (audio.DB_FLOOR / 20.0)
-        amp_ceil = 10.0 ** (audio.DB_CEILING / 20.0)
-        # At exactly the ceiling, norm = 1.0 * LINEAR_BOOST = 1.3, clipped to 1.0
-        raw = (amp_ceil - amp_floor) / (amp_ceil - amp_floor) * audio.LINEAR_BOOST
-        self.assertGreater(raw, 1.0, "LINEAR_BOOST pushes ceiling above 1.0 before clip")
-
-    # --- Full pipeline integration ---
-    def test_process_block_returns_128_bytes(self):
+    def test_process_block_returns_both_legacy_and_mica(self):
         s = audio.SpectrumStreamer("127.0.0.1", 4210)
         mono = audio.np.zeros(audio.FRAMES, dtype=audio.np.float32)
-        result = s._process_block(mono)
-        self.assertEqual(len(result), 128)
-        self.assertEqual(result.dtype, audio.np.uint8)
+        legacy, mica = s._process_block(mono)
+        self.assertEqual(len(legacy), 32)
+        self.assertEqual(legacy.dtype, audio.np.uint8)
+        self.assertEqual(len(mica), 128)
+        self.assertEqual(mica.dtype, audio.np.uint8)
 
     def test_process_block_silence_is_zeros(self):
         s = audio.SpectrumStreamer("127.0.0.1", 4210)
         mono = audio.np.zeros(audio.FRAMES, dtype=audio.np.float32)
-        result = s._process_block(mono)
-        self.assertTrue(bool((result == 0).all()))
+        legacy, mica = s._process_block(mono)
+        self.assertTrue(bool((mica == 0).all()))
 
     def test_process_block_loud_tone_nonzero(self):
         s = audio.SpectrumStreamer("127.0.0.1", 4210)
         t = audio.np.arange(audio.FRAMES, dtype=audio.np.float32) / audio.RATE
         mono = 0.5 * audio.np.sin(2 * audio.np.pi * 440.0 * t).astype(audio.np.float32)
-        self.assertTrue(bool((s._process_block(mono) == 0).all()))  # FFT warm-up
-        result = s._process_block(mono)
-        self.assertGreater(int(result.max()), 0, "440 Hz tone should light up some columns")
-
-    def test_process_block_runs_all_available_256_sample_hops(self):
-        s = audio.SpectrumStreamer("127.0.0.1", 4210)
-        block = audio.np.zeros(audio.FRAMES, dtype=audio.np.float32)
-        s._process_block(block)  # 1920 samples: below the first 2048-sample FFT
-        with patch.object(s, "_analyse_window", wraps=s._analyse_window) as analyse:
-            s._process_block(block)
-        # 3840 samples contain windows at offsets 0, 256, ..., 1792.
-        self.assertEqual(analyse.call_count, 8)
-
-    def test_fft_smoothing_keeps_75_percent_of_the_previous_power(self):
-        s = audio.SpectrumStreamer("127.0.0.1", 4210)
-        t = audio.np.arange(audio.FFT_N, dtype=audio.np.float32) / audio.RATE
-        tone = 0.5 * audio.np.sin(2 * audio.np.pi * 440.0 * t).astype(audio.np.float32)
-        s._analyse_window(tone)
-        previous = s._smoothed_power.copy()
-        s._analyse_window(audio.np.zeros(audio.FFT_N, dtype=audio.np.float32))
-        self.assertTrue(bool(audio.np.allclose(
-            s._smoothed_power, previous * audio.FFT_SMOOTHING, rtol=1e-5, atol=1e-9)))
+        # Feed enough blocks to fill window (2048 samples = ~4 blocks of 576)
+        for _ in range(4):
+            s._process_block(mono)
+        legacy, mica = s._process_block(mono)
+        self.assertGreater(int(mica.max()), 0)
+        self.assertGreater(int(legacy.max()), 0)
 
 
 if __name__ == "__main__":

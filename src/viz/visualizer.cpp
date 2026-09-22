@@ -90,20 +90,36 @@ static void drawMirroredLegacy() {
   display.drawFastHLine(0, centreY, SCREEN_WIDTH, vizRgb(35, 35, 55));
 }
 
-static uint16_t micaRainbowForColumn(int column, int columnCount) {
-  // Exact hue partitioning used by Mica's HUB75 fallback renderer.
-  if (columnCount <= 1) return vizRgb(255, 0, 0);
-  const uint8_t hue = (uint8_t)((column * 255u) / (columnCount - 1u));
+struct RgbColor888 {
+  uint8_t r, g, b;
+};
+
+static inline float clamp01f(float v) {
+  if (v <= 0.0f) return 0.0f;
+  return v >= 1.0f ? 1.0f : v;
+}
+
+static inline uint8_t clampToByte(int v) {
+  if (v <= 0) return 0;
+  return v >= 255 ? 255 : (uint8_t)v;
+}
+
+static RgbColor888 sampleRainbowColor(float t) {
+  // Exact port of Mica's samplePaletteColor(Rainbow) + rainbowColorForColumn(column, 256):
+  // column = lroundf(clamp01(x / 127.0f) * 255.0f); hue = column;
+  const uint16_t column = (uint16_t)clampToByte((int)roundf(clamp01f(t) * 255.0f));
+  const uint8_t hue = (uint8_t)column;
   const uint8_t region = hue / 43u;
   const uint8_t remainder = (uint8_t)((hue - region * 43u) * 6u);
   const uint8_t q = (uint8_t)(255u - remainder);
+  const uint8_t rem = remainder;
   switch (region) {
-    case 0: return vizRgb(255, remainder, 0);
-    case 1: return vizRgb(q, 255, 0);
-    case 2: return vizRgb(0, 255, remainder);
-    case 3: return vizRgb(0, q, 255);
-    case 4: return vizRgb(remainder, 0, 255);
-    default: return vizRgb(255, 0, q);
+    case 0: return {255, rem, 0};
+    case 1: return {q, 255, 0};
+    case 2: return {0, 255, rem};
+    case 3: return {0, q, 255};
+    case 4: return {rem, 0, 255};
+    default: return {255, 0, q};
   }
 }
 
@@ -117,19 +133,31 @@ static inline uint8_t smoothBinsSample(const uint8_t *bins, int x) {
 static void drawAudioMotionClone(bool stale) {
   // Pixel-for-pixel port of Mica's drawMirrorLinesVisual: one column per
   // HUB75 pixel, 3-tap spatial smoothing, height rounded upward to 0..31,
-  // mirrored symmetrically about midY=32.
+  // mirrored symmetrically about midY=32 using literal drawPixelRGB888.
   if (stale) return;
   const int columns = SCREEN_WIDTH < VIZ_AUDIOMOTION_BANDS
                           ? SCREEN_WIDTH : VIZ_AUDIOMOTION_BANDS;
-  const int midY = SCREEN_HEIGHT / 2;   // 32
+  const int16_t midY = SCREEN_HEIGHT / 2;   // 32
+
+  static bool rainbowLogged = false;
+  if (!rainbowLogged) {
+    rainbowLogged = true;
+    for (int testX : {0, 32, 64, 96, 127}) {
+      RgbColor888 c = sampleRainbowColor(testX / 127.0f);
+      Serial.printf("[VIZ] Rainbow x=%d -> RGB888(%d, %d, %d)\n", testX, c.r, c.g, c.b);
+    }
+  }
+
   for (int x = 0; x < columns; ++x) {
     const uint8_t amplitude = smoothBinsSample(vizAudioMotionBands, x);
     // Ceiling division: maps 1..255 → 1..31, 0 → 0 (matching Mica's amplitudeToHeight)
-    const int halfHeight = (amplitude * 31 + 254) / 255;
+    const uint8_t halfHeight = (uint8_t)(((uint16_t)amplitude * 31u + 254u) / 255u);
     if (halfHeight == 0) continue;
-    const uint16_t color = micaRainbowForColumn(x, columns);
-    // Symmetric vertical line centred at midY: total height = 2*halfHeight - 1
-    display.drawFastVLine(x, midY - (halfHeight - 1), 2 * halfHeight - 1, color);
+    const RgbColor888 color = sampleRainbowColor(x / (float)(columns - 1));
+    for (uint8_t offset = 0; offset < halfHeight; offset++) {
+      display.drawPixelRGB888(x, midY - offset, color.r, color.g, color.b);
+      display.drawPixelRGB888(x, midY + offset, color.r, color.g, color.b);
+    }
   }
 }
 
@@ -262,10 +290,32 @@ static void reduceToLegacyBands() {
   }
 }
 
+static uint32_t vizPacketsInWindow = 0;
+static uint32_t vizPpsCurrent = 0;
+static unsigned long vizPpsWindowStart = 0;
+
+static uint32_t vizRenderFramesInWindow = 0;
+static uint32_t vizRenderFpsCurrent = 0;
+static unsigned long vizFpsWindowStart = 0;
+
+uint32_t vizPacketsPerSecond() {
+  if (!vizRecentEnough(1500)) return 0;
+  return vizPpsCurrent;
+}
+
+uint32_t vizRenderFps() {
+  if (!vizRecentEnough(2000)) return 0;
+  return vizRenderFpsCurrent;
+}
+
 bool vizIngest(const uint8_t* buf, int len) {
   if (len < 4) return false;
   int waveOffset = 0;
-  if (len >= VIZ_PACKET2_LEN && memcmp(buf, "FFT2", 4) == 0) {
+  if (len >= VIZ_PACKET3_LEN && memcmp(buf, "FFT3", 4) == 0) {
+    memcpy(vizBands, buf + 4, VIZ_BANDS);
+    memcpy(vizAudioMotionBands, buf + 4 + VIZ_BANDS, VIZ_AUDIOMOTION_BANDS);
+    waveOffset = 4 + VIZ_BANDS + VIZ_AUDIOMOTION_BANDS;
+  } else if (len >= VIZ_PACKET2_LEN && memcmp(buf, "FFT2", 4) == 0) {
     memcpy(vizAudioMotionBands, buf + 4, VIZ_AUDIOMOTION_BANDS);
     reduceToLegacyBands();
     waveOffset = VIZ_PACKET2_LEN;
@@ -284,9 +334,17 @@ bool vizIngest(const uint8_t* buf, int len) {
     // A legacy companion must not keep a previous sender's waveform alive.
     vizWaveEver = false;
   }
-  vizLastReceived = millis();
+  unsigned long now = millis();
+  vizLastReceived = now;
   ++vizPacketSerial;
   vizEverReceived = true;
+
+  vizPacketsInWindow++;
+  if (now - vizPpsWindowStart >= 1000) {
+    vizPpsCurrent = (vizPacketsInWindow * 1000UL) / (now - vizPpsWindowStart);
+    vizPacketsInWindow = 0;
+    vizPpsWindowStart = now;
+  }
   return true;
 }
 
@@ -325,6 +383,12 @@ static void drawVizClock() {
 
 void displayVisualizer() {
   unsigned long now = millis();
+  vizRenderFramesInWindow++;
+  if (now - vizFpsWindowStart >= 1000) {
+    vizRenderFpsCurrent = (vizRenderFramesInWindow * 1000UL) / (now - vizFpsWindowStart);
+    vizRenderFramesInWindow = 0;
+    vizFpsWindowStart = now;
+  }
   bool resetStyle = settings.vizStyle != lastStyle || now - lastVizFrame > 250;
   if (resetStyle) {
     memset(waterfall, 0, sizeof(waterfall));
