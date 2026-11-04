@@ -54,10 +54,9 @@ def convert_gif(options):
     fit, anchor = options.get('fit', 'crop'), options.get('anchor', 'center')
     if fit not in ('crop', 'pad', 'stretch') or anchor not in ('start', 'center', 'end'):
         raise ValueError('Invalid fit or crop anchor.')
-    colors = int(options.get('colors', 16))
     skip = int(options.get('frameSkip', 1))
     budget = min(MAX_PCA_BYTES, int(options.get('maxBytes', MAX_PCA_BYTES)))
-    if not 2 <= colors <= 16 or not 1 <= skip <= 1000 or budget < 4142:
+    if not 1 <= skip <= 1000 or budget < 16398:
         raise ValueError('Check palette size, frame skip and available device storage.')
     raw = decode_blob(options.get('gif'), MAX_INPUT_BYTES)
     frames, delays = [], []
@@ -76,8 +75,8 @@ def convert_gif(options):
             if index == 1000 or pixels > 100_000_000:
                 raise ValueError('GIF is too long or large. Trim or resize it first.')
             frames.append(codec.fit_frame(source.convert('RGB'), fit, anchor))
-            delays.append(max(34, min(5000, int(source.info.get('duration', 100)) or 100)))
-    max_frames = min(360, (budget - 44) // 4098)
+            delays.append(max(codec.MIN_DELAY_MS, min(codec.MAX_DELAY_MS, int(source.info.get('duration', 100)) or 100)))
+    max_frames = min(360, (budget - 12) // 16386)
     if options.get('autoFit', True):
         skip = max(skip, math.ceil(len(frames) / max_frames))
     selected = frames[::skip]
@@ -86,12 +85,11 @@ def convert_gif(options):
         raise ValueError('Animation does not fit. Enable fit-to-storage or increase frame skip.')
     if any(d > 5000 for d in merged):
         raise ValueError('Too little storage to preserve timing. Trim the GIF into a shorter clip.')
-    quantized, palette = codec.quantize_frames(selected, colors)
-    blob = codec.build_pca(quantized, palette, merged)
+    blob = codec.build_pca2(selected, merged)
     if len(blob) > budget:
         raise ValueError('Converted animation exceeds the upload budget.')
     preview = io.BytesIO()
-    images = [f.convert('RGB').resize((512, 256), Image.Resampling.NEAREST) for f in quantized]
+    images = [f.convert('RGB').resize((512, 256), Image.Resampling.NEAREST) for f in selected]
     images[0].save(preview, format='GIF', save_all=True, append_images=images[1:], duration=merged, loop=0)
     return {'pca': base64.b64encode(blob).decode('ascii'),
             'preview': base64.b64encode(preview.getvalue()).decode('ascii'),
@@ -106,12 +104,20 @@ def animation_name(value):
 
 
 def validate_pca(blob):
-    if len(blob) < 12 or blob[:4] != b'PCA1':
+    if len(blob) < 12 or blob[:4] not in (b'PCA1', b'PCA2'):
         raise ValueError('Invalid converted animation.')
     frames, delay, palette, flags, reserved = struct.unpack('<HHBBH', blob[4:12])
-    if not 1 <= frames <= 360 or not 20 <= delay <= 5000 or not 2 <= palette <= 16:
+    if not 1 <= frames <= 360 or not 20 <= delay <= 5000:
         raise ValueError('Invalid animation header.')
-    if len(blob) != 12 + palette * 2 + frames * 4098:
+    if blob[:4] == b'PCA1':
+        if not 2 <= palette <= 16:
+            raise ValueError('Invalid animation header.')
+        expected = 12 + palette * 2 + frames * 2 + frames * 4096
+    else:
+        if palette != 0:
+            raise ValueError('Invalid animation header.')
+        expected = 12 + frames * 2 + frames * 16384
+    if len(blob) != expected:
         raise ValueError('Invalid animation length.')
 
 

@@ -104,21 +104,38 @@ static inline uint8_t clampToByte(int v) {
   return v >= 255 ? 255 : (uint8_t)v;
 }
 
-static RgbColor888 sampleRainbowColor(float t) {
-  // Exact port of Mica's samplePaletteColor(Rainbow) + rainbowColorForColumn(column, 256):
-  // column = lroundf(clamp01(x / 127.0f) * 255.0f); hue = column;
+static RgbColor888 sampleAudioMotionColor(float t, uint8_t style) {
+  if (style >= 9) {
+    static const RgbColor888 rainbow[] = {{255,30,30},{255,116,0},{255,236,0},{0,255,80},{0,220,255},{0,80,255},{255,0,255}};
+    static const RgbColor888 sunset[] = {{255,72,40},{255,132,32},{255,188,48},{220,82,196},{98,54,255}};
+    static const RgbColor888 arctic[] = {{24,214,255},{0,168,255},{74,224,255},{138,255,214},{114,92,255}};
+    static const RgbColor888 neon[] = {{57,255,20},{0,255,180},{0,220,255},{120,86,255},{255,60,180}};
+    const RgbColor888* colors = rainbow; int count = 7;
+    if (style == 9) { colors = sunset; count = 5; }
+    else if (style == 10) { colors = arctic; count = 5; }
+    else if (style == 11) { colors = neon; count = 5; }
+    t = clamp01f(t); int i = 0;
+    float scaled = t * (count - 1);
+    i = (int)scaled;
+    if (i >= count - 1) i = count - 2;
+    float f = scaled - i;
+    return {(uint8_t)roundf(colors[i].r + (colors[i+1].r-colors[i].r)*f),
+            (uint8_t)roundf(colors[i].g + (colors[i+1].g-colors[i].g)*f),
+            (uint8_t)roundf(colors[i].b + (colors[i+1].b-colors[i].b)*f)};
+  }
+  // Match Mica's Bins128PreviewRenderer RainbowColorForColumn exactly.
   const uint16_t column = (uint16_t)clampToByte((int)roundf(clamp01f(t) * 255.0f));
-  const uint8_t hue = (uint8_t)column;
+  const uint8_t hue = (uint8_t)((column * 255u) / 255u);
   const uint8_t region = hue / 43u;
   const uint8_t remainder = (uint8_t)((hue - region * 43u) * 6u);
   const uint8_t q = (uint8_t)(255u - remainder);
-  const uint8_t rem = remainder;
+  const uint8_t tt = remainder;
   switch (region) {
-    case 0: return {255, rem, 0};
+    case 0: return {255, tt, 0};
     case 1: return {q, 255, 0};
-    case 2: return {0, 255, rem};
+    case 2: return {0, 255, tt};
     case 3: return {0, q, 255};
-    case 4: return {rem, 0, 255};
+    case 4: return {tt, 0, 255};
     default: return {255, 0, q};
   }
 }
@@ -130,7 +147,7 @@ static inline uint8_t smoothBinsSample(const uint8_t *bins, int x) {
   return (uint8_t)((left + 2 * (int)bins[x] + right) >> 2);
 }
 
-static void drawAudioMotionClone(bool stale) {
+static void drawAudioMotionClone(bool stale, uint8_t style) {
   // Pixel-for-pixel port of Mica's drawMirrorLinesVisual: one column per
   // HUB75 pixel, 3-tap spatial smoothing, height rounded upward to 0..31,
   // mirrored symmetrically about midY=32 using literal drawPixelRGB888.
@@ -143,7 +160,7 @@ static void drawAudioMotionClone(bool stale) {
   if (!rainbowLogged) {
     rainbowLogged = true;
     for (int testX : {0, 32, 64, 96, 127}) {
-      RgbColor888 c = sampleRainbowColor(testX / 127.0f);
+      RgbColor888 c = sampleAudioMotionColor(testX / 127.0f, style);
       Serial.printf("[VIZ] Rainbow x=%d -> RGB888(%d, %d, %d)\n", testX, c.r, c.g, c.b);
     }
   }
@@ -153,7 +170,7 @@ static void drawAudioMotionClone(bool stale) {
     // Ceiling division: maps 1..255 → 1..31, 0 → 0 (matching Mica's amplitudeToHeight)
     const uint8_t halfHeight = (uint8_t)(((uint16_t)amplitude * 31u + 254u) / 255u);
     if (halfHeight == 0) continue;
-    const RgbColor888 color = sampleRainbowColor(x / (float)(columns - 1));
+    const RgbColor888 color = sampleAudioMotionColor(x / (float)(columns - 1), style);
     for (uint8_t offset = 0; offset < halfHeight; offset++) {
       display.drawPixelRGB888(x, midY - offset, color.r, color.g, color.b);
       display.drawPixelRGB888(x, midY + offset, color.r, color.g, color.b);
@@ -458,9 +475,9 @@ void displayVisualizer() {
   if (settings.vizStyle == 6)
     drawOscilloscope(vizWaveform(), vizWaveserial, stale, dt, resetStyle);
   if (settings.vizStyle == 7) drawMirroredLegacy();
-  if (settings.vizStyle == 8) drawAudioMotionClone(stale);
+  if (settings.vizStyle >= 8 && settings.vizStyle <= 11) drawAudioMotionClone(stale, settings.vizStyle);
 
-  bool audioMotionFullscreen = settings.vizStyle == 8;
+  bool audioMotionFullscreen = settings.vizStyle >= 8 && settings.vizStyle <= 11;
   if (stale && !audioMotionFullscreen) {
     display.setTextSize(1);
     display.setTextColor(DISPLAY_WHITE);

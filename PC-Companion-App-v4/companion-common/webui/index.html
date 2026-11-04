@@ -276,12 +276,13 @@
             <div class="grid-2">
               <div class="field"><label for="gifFit">Ajuste</label><select id="gifFit"><option value="crop">Cortar para preencher</option><option value="pad">Ajustar com bordas pretas</option><option value="stretch">Esticar</option></select></div>
               <div class="field"><label for="gifAnchor">Âncora de corte</label><select id="gifAnchor"><option value="center">Centro</option><option value="start">Superior / Esquerda</option><option value="end">Inferior / Direita</option></select></div>
-              <div class="field"><label for="gifColors">Cores da paleta</label><input type="number" id="gifColors" value="16" min="2" max="16"></div>
               <div class="field"><label for="gifSkip">Manter a cada N quadros</label><input type="number" id="gifSkip" value="1" min="1" max="1000"></div>
             </div>
             <label><input type="checkbox" id="gifAuto" checked> Reduzir quadros automaticamente para caber no armazenamento</label>
             <p class="field-hint">Mantém a duração total combinando o atraso dos quadros. Menos quadros resultam em um movimento menos suave.</p>
             <p id="gifBudget" class="field-hint">Atualize o armazenamento para ver a capacidade do dispositivo.</p>
+            <progress id="gifStorageMeter" max="100" value="0" style="width:100%;height:12px"></progress>
+            <p id="gifStorageText" class="field-hint">Espaço total e disponível no armazenamento de animações.</p>
             <button type="button" class="btn" id="gifRefresh">Atualizar armazenamento</button>
             <button type="button" class="btn btn-accent" id="gifConvert">Gerar prévia</button>
             <div style="margin:20px 0"><img id="gifPreview" alt="Prévia da animação convertida" style="max-width:100%;width:512px;image-rendering:pixelated"></div>

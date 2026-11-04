@@ -469,7 +469,7 @@ void handleAnimList() {
  size_t available = animFsFree() > ANIM_FS_FREE_MARGIN ? animFsFree() - ANIM_FS_FREE_MARGIN : 0;
  uint32_t maxUpload = available < PCA_MAX_BYTES ? available : PCA_MAX_BYTES;
  doc["maxUploadBytes"] = maxUpload;
- doc["maxFrames"] = maxUpload > 44 ? (maxUpload - 44) / (PCA_FRAME_BYTES + 2) : 0;
+ doc["maxFrames"] = maxUpload > PCA_HEADER_BYTES ? (maxUpload - PCA_HEADER_BYTES) / (PCA2_FRAME_BYTES + 2) : 0;
  doc["reason"] = animFsUsable() ? "" : "Animation filesystem is unavailable or too small";
  doc["current"] = settings.ambientCustomFile;
  JsonArray anims = doc["anims"].to<JsonArray>();
@@ -560,7 +560,7 @@ void handleAnimUploadChunk() {
    size_t freeBytes = animFsFree();
    uint32_t cap = freeBytes > ANIM_FS_FREE_MARGIN ? freeBytes - ANIM_FS_FREE_MARGIN : 0;
    animUpCap = cap < PCA_MAX_BYTES ? cap : PCA_MAX_BYTES;
-   if (animUpCap < PCA_HEADER_BYTES + PCA_FRAME_BYTES) { animUpError = "not enough free space"; return; }
+   if (animUpCap < PCA_HEADER_BYTES + 2 + PCA2_FRAME_BYTES) { animUpError = "not enough free space"; return; }
    ambientCustomInvalidate(); // release any open handle before FS writes
    animUpFile = LittleFS.open(ANIM_TMP, "w");
    if (!animUpFile) animUpError = "cannot open temp file";
@@ -814,11 +814,13 @@ static bool resolvePlaceholder(const char* n, String& out) {
   if (!strcmp(n, "CHK_VIZSHOWCLOCK")) { out = String(settings.vizShowClock ? "checked" : ""); return true; }
   if (!strcmp(n, "OPT_VIZSTYLE")) {
     // Slot 4 is retired; ids stay stable for saved settings.
-    const uint8_t ids[] = {0, 1, 2, 3, 5, 6, 7, 8};
+    const uint8_t ids[] = {0, 1, 2, 3, 5, 6, 7, 8, 9, 10, 11};
     const char* names[] = {"EQ clássico", "Espelho neon", "Cascata de fósforo",
            "Palco LED roxo", "Starfield Overdrive", "Osciloscópio",
-           "Barras espelhadas (legado)", "AudioMotion Clone"};
-    for (int i = 0; i < 8; i++) {
+           "Barras espelhadas (legado)", "AudioMotion Clone (Rainbow)",
+           "AudioMotion Clone (Sunset)", "AudioMotion Clone (Arctic)",
+           "AudioMotion Clone (Neon)"};
+    for (int i = 0; i < 11; i++) {
       out += "<option value=\"" + String(ids[i]) + "\"" + (settings.vizStyle == ids[i] ? " selected" : "") + ">" + names[i] + "</option>";
     }
     return true;

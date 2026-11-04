@@ -3,6 +3,7 @@
 # pc_stats_monitor_v4.exe is tracked so it ships/syncs with the repo.
 build/
 *.spec
+!pc_stats_monitor_v4.spec
 
 # Python cache
 __pycache__/

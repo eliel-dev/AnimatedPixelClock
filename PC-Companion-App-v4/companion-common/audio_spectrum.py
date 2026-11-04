@@ -580,6 +580,8 @@ class SpectrumStreamer(threading.Thread):
         """Append captured samples, update rolling buffers, run Mica hops and legacy analyzer."""
         samples = np.asarray(mono, dtype=np.float32).reshape(-1)
         if samples.size:
+            # Match Mica's fixed AnalyzerConfig.InputGain = 1.0. Do not adapt
+            # capture gain: changing playback level must not add attack lag.
             self._sample_window = np.concatenate((self._sample_window, samples))
             self._legacy_buffer = np.concatenate((self._legacy_buffer, samples))
             if self._legacy_buffer.size > LEGACY_FRAMES:

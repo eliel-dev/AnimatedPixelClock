@@ -14,7 +14,10 @@ function setBusy(value) { busy=value; ['gifConvert','gifRefresh','gifPlay','gifD
 async function refresh() {
  storage = await request('/api/animations/storage');
  var budget=storage.maxUploadBytes===undefined?Math.max(0,storage.free-16384):storage.maxUploadBytes;
- $('gifBudget').textContent=storage.device+' | '+Math.floor(storage.free/1024)+' KiB livres | '+Math.floor(budget/1024)+' KiB para envio';
+ var total=Number(storage.total)||0, free=Number(storage.free)||0, used=Math.max(0,total-free);
+ $('gifBudget').textContent=storage.device+' | '+Math.floor(budget/1024)+' KiB disponíveis para novas animações';
+ $('gifStorageMeter').max=total||1; $('gifStorageMeter').value=Math.min(total,used);
+ $('gifStorageText').textContent='Total: '+(total/1048576).toFixed(2)+' MiB | Disponível: '+(free/1048576).toFixed(2)+' MiB | Usado: '+(used/1048576).toFixed(2)+' MiB';
  $('gifFiles').innerHTML='';
  (storage.anims||[]).forEach(function(a){var o=document.createElement('option');o.value=a.name;o.textContent=a.name+' ('+a.frames+' quadros)';$('gifFiles').appendChild(o);});
  if(!storage.usable)throw new Error('Armazenamento de animações desativado. Atualize o firmware do dispositivo para permitir clipes curtos em placas de 4MB.');
@@ -23,12 +26,12 @@ async function refresh() {
 async function run(action) { if(busy)return;setBusy(true);try{await action();}catch(e){message(e.message);}finally{setBusy(false);} }
 function readBase64(file) { return new Promise(function(resolve,reject){var reader=new FileReader();reader.onload=function(){resolve(reader.result.split(',')[1]);};reader.onerror=function(){reject(new Error('Não foi possível ler o GIF'));};reader.readAsDataURL(file);}); }
 $('gifRefresh').onclick=function(){run(async function(){await refresh();message('Armazenamento atualizado.');});};
-['gifFit','gifAnchor','gifColors','gifSkip','gifAuto','gifInput'].forEach(function(id){$(id).addEventListener('change',invalidate);});
+['gifFit','gifAnchor','gifSkip','gifAuto','gifInput'].forEach(function(id){$(id).addEventListener('change',invalidate);});
 $('gifInput').addEventListener('change',function(){var f=this.files[0];if(f)$('gifName').value=f.name.replace(/\.gif$/i,'').replace(/[^A-Za-z0-9_-]/g,'').slice(0,24)||'animacao';});
 $('gifConvert').onclick=function(){run(async function(){
  invalidate();var file=$('gifInput').files[0];if(!file)throw new Error('Escolha um GIF primeiro.');if(file.size>8*1024*1024)throw new Error('O limite do arquivo GIF é de 8MiB.');
  message('Lendo armazenamento do dispositivo e gerando prévia...');var budget=await refresh();
- converted=await request('/api/animations/convert',{gif:await readBase64(file),fit:$('gifFit').value,anchor:$('gifAnchor').value,colors:Number($('gifColors').value),frameSkip:Number($('gifSkip').value),autoFit:$('gifAuto').checked,maxBytes:budget});
+converted=await request('/api/animations/convert',{gif:await readBase64(file),fit:$('gifFit').value,anchor:$('gifAnchor').value,frameSkip:Number($('gifSkip').value),autoFit:$('gifAuto').checked,maxBytes:budget});
  $('gifPreview').src='data:image/gif;base64,'+converted.preview;
  message(converted.frames+' / '+converted.sourceFrames+' quadros, '+converted.seconds.toFixed(1)+'s, '+(converted.bytes/1024).toFixed(1)+' KiB. Mantido a cada '+converted.frameSkip+' quadro(s). Revise a prévia e envie.');
 });};

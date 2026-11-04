@@ -51,6 +51,26 @@ bool httpForceClock = false;  // HTTP override to force clock mode (via /api/mod
 bool httpForceAmbient = false;  // HTTP override to force the ambient screen (via /api/mode/ambient)
 bool httpForceViz = false;  // HTTP override to force the audio visualizer (via /api/mode/viz)
 
+// Custom GIF playback uses an exact average 30 Hz deadline. A fractional
+// accumulator alternates 33333/33334 us periods instead of drifting at 33 ms.
+static uint32_t customAnimationDeadlineUs = 0;
+static uint8_t customAnimationPeriodRemainder = 0;
+static bool customAnimationSchedulerActive = false;
+
+static bool deadlineReached(uint32_t now, uint32_t deadline) {
+  return (int32_t)(now - deadline) >= 0;
+}
+
+static uint32_t nextCustomAnimationPeriodUs() {
+  uint32_t period = 33333;
+  customAnimationPeriodRemainder += 10;  // 1,000,000 % 30
+  if (customAnimationPeriodRemainder >= 30) {
+    customAnimationPeriodRemainder -= 30;
+    ++period;
+  }
+  return period;
+}
+
 // ========== Forward Declarations ==========
 // Redundant forward declarations removed (covered by headers)
 void displayStats();
@@ -359,26 +379,58 @@ void loop() {
   }
   prevNtpSynced = ntpSynced;
 
-  // Display update with adaptive refresh rate
-  int targetHz = getOptimalRefreshRate();
-  unsigned long frameInterval = 1000 / targetHz;
+  // Resolve the content before scheduling so custom GIF playback stays at a
+  // fixed 30 Hz even when another mode would normally use adaptive refresh.
+  bool showViz = httpForceViz && vizShouldDisplay();
+  bool showStats =
+      !showViz && metricData.online && !httpForceClock && !httpForceAmbient;
+  bool customAnimationDisplay = !showViz && !showStats && ambientActive() &&
+                                settings.ambientStyle == 6;
+  bool displayReady = displayAvailable && !isDisplayForcedOff();
+  bool displayTickDue = false;
 
-  if (millis() >= nextDisplayUpdate && displayAvailable && !isDisplayForcedOff()) {
+  if (customAnimationDisplay && displayReady) {
+    uint32_t nowUs = micros();
+    if (!customAnimationSchedulerActive) {
+      customAnimationSchedulerActive = true;
+      customAnimationDeadlineUs = nowUs;
+      customAnimationPeriodRemainder = 0;
+    }
+    if (deadlineReached(nowUs, customAnimationDeadlineUs)) {
+      displayTickDue = true;
+      // Advance to the next future slot. Missed slots are discarded, so a
+      // delayed loop never produces a burst of catch-up display flips.
+      do {
+        customAnimationDeadlineUs += nextCustomAnimationPeriodUs();
+      } while (deadlineReached(nowUs, customAnimationDeadlineUs));
+    }
+  } else {
+    if (customAnimationSchedulerActive) {
+      customAnimationSchedulerActive = false;
+      customAnimationDeadlineUs = 0;
+      customAnimationPeriodRemainder = 0;
+      nextDisplayUpdate = millis();
+    }
+
+    // All other display modes retain their existing adaptive refresh rate.
+    int targetHz = getOptimalRefreshRate();
+    unsigned long frameInterval = 1000 / targetHz;
+    if (millis() >= nextDisplayUpdate && displayReady) {
     // Schedule from the previous deadline, not from "now": scheduling from now
     // adds the loop latency to every frame, so frames drift off the fixed grid
     // and the animation tick gates beat against them (visible micro-stutter).
-    nextDisplayUpdate += frameInterval;
-    if (millis() >= nextDisplayUpdate) {
-      // Fell behind (stall or refresh-rate change) - resync to now.
-      nextDisplayUpdate = millis() + frameInterval;
+      nextDisplayUpdate += frameInterval;
+      if (millis() >= nextDisplayUpdate) {
+        // Fell behind (stall or refresh-rate change) - resync to now.
+        nextDisplayUpdate = millis() + frameInterval;
+      }
+      displayTickDue = true;
     }
+  }
 
+  if (displayTickDue) {
     // Visualizer wins over everything while forced AND fed; when the packet
     // stream dies for 10s it falls through (and auto-resumes when it's back).
-    bool showViz = httpForceViz && vizShouldDisplay();
-    bool showStats =
-        !showViz && metricData.online && !httpForceClock && !httpForceAmbient;
-
     // The DMA flip only takes effect at the end of the panel's current scan
     // (the library does not wait for the buffer to be free), so anything we
     // draw in the first ms after flipping can appear on screen. Clearing to
@@ -477,6 +529,16 @@ void loop() {
     // the custom animation reads its next frame from flash here so the I/O
     // never delays a flip (delayed flips beat against the DMA scan).
     ambientCustomPrefetch();
+
+    // If rendering overran one or more 30 Hz slots, discard those deadlines
+    // now. The next render waits for a future slot instead of catching up in
+    // a burst of back-to-back display flips.
+    if (customAnimationDisplay) {
+      uint32_t afterRenderUs = micros();
+      while (deadlineReached(afterRenderUs, customAnimationDeadlineUs)) {
+        customAnimationDeadlineUs += nextCustomAnimationPeriodUs();
+      }
+    }
   }
 
   // WiFi reconnection handling

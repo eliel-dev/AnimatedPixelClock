@@ -16,7 +16,7 @@ PCA1 format (little-endian):
     9           1       flags (bit0: loop)
     10          2       reserved (0)
     12          P*2     palette, RGB565
-    12+P*2      N*2     per-frame delay in ms (clamped 34..5000)
+    12+P*2      N*2     per-frame delay in ms (clamped 10..5000)
     12+P*2+N*2  N*4096  4bpp frames, 2 px/byte, high nibble = left pixel
 
 Usage:
@@ -44,7 +44,7 @@ def pixel_data(img):
         return list(img.get_flattened_data())
     return list(img.getdata())
 MAX_FRAMES = 360
-MIN_DELAY_MS = 34  # the device renders ambient at 30 Hz
+MIN_DELAY_MS = 10  # GIF timing is stored in centiseconds; output is sampled at 30 Hz
 MAX_DELAY_MS = 5000
 MAX_PCA_BYTES = 1536 * 1024  # device hard cap
 
@@ -68,41 +68,46 @@ def load_frames(path):
 
 
 def fit_frame(frame, mode, anchor):
-    """Fit one RGB frame to 128x64 via crop, pad or stretch."""
+    """Fit a frame using the same nearest-neighbor mapping as Mica's HUB75 formatter."""
     w, h = frame.size
     if mode == "stretch":
-        return frame.resize((PANEL_W, PANEL_H), Image.BOX)
+        draw_w, draw_h = PANEL_W, PANEL_H
+        offset_x = offset_y = 0.0
+    else:
+        width_scale = PANEL_W / float(w)
+        height_scale = PANEL_H / float(h)
+        scale = max(width_scale, height_scale) if mode == "crop" else min(width_scale, height_scale)
+        # Match MathF.Round's midpoint-away-from-zero behavior in Mica.
+        draw_w = max(1, int(w * scale + 0.5))
+        draw_h = max(1, int(h * scale + 0.5))
+        offset_x = (PANEL_W - draw_w) / 2.0
+        offset_y = (PANEL_H - draw_h) / 2.0
 
-    target = PANEL_W / PANEL_H  # 2:1
-    if mode == "crop":
-        # Cut the excess dimension, keep the anchored edge.
-        if w / h > target:  # too wide: crop x
-            cw = int(round(h * target))
-            if anchor == "start":
-                x0 = 0
-            elif anchor == "end":
-                x0 = w - cw
-            else:
-                x0 = (w - cw) // 2
-            frame = frame.crop((x0, 0, x0 + cw, h))
-        else:  # too tall: crop y
-            ch = int(round(w / target))
-            if anchor == "start":
-                y0 = 0
-            elif anchor == "end":
-                y0 = h - ch
-            else:
-                y0 = (h - ch) // 2
-            frame = frame.crop((0, y0, w, y0 + ch))
-        return frame.resize((PANEL_W, PANEL_H), Image.BOX)
+        # Preserve the Companion's crop anchor while using the Mica pixel map.
+        if mode == "crop" and anchor == "start":
+            offset_x = 0.0 if draw_w > PANEL_W else offset_x
+            offset_y = 0.0 if draw_h > PANEL_H else offset_y
+        elif mode == "crop" and anchor == "end":
+            offset_x = PANEL_W - draw_w if draw_w > PANEL_W else offset_x
+            offset_y = PANEL_H - draw_h if draw_h > PANEL_H else offset_y
 
-    # pad: letterbox on black
-    scale = min(PANEL_W / w, PANEL_H / h)
-    sw, sh = max(1, int(round(w * scale))), max(1, int(round(h * scale)))
-    scaled = frame.resize((sw, sh), Image.BOX)
-    canvas = Image.new("RGB", (PANEL_W, PANEL_H), (0, 0, 0))
-    canvas.paste(scaled, ((PANEL_W - sw) // 2, (PANEL_H - sh) // 2))
-    return canvas
+    source = frame.convert("RGB")
+    source_pixels = source.load()
+    output = Image.new("RGB", (PANEL_W, PANEL_H), (0, 0, 0))
+    output_pixels = output.load()
+
+    for target_y in range(PANEL_H):
+        local_y = target_y - offset_y
+        if local_y < 0.0 or local_y >= draw_h:
+            continue
+        source_y = min(h - 1, max(0, int(local_y * h / draw_h)))
+        for target_x in range(PANEL_W):
+            local_x = target_x - offset_x
+            if local_x < 0.0 or local_x >= draw_w:
+                continue
+            source_x = min(w - 1, max(0, int(local_x * w / draw_w)))
+            output_pixels[target_x, target_y] = source_pixels[source_x, source_y]
+    return output
 
 
 def quantize_frames(frames, colors):
@@ -133,7 +138,7 @@ def pack_frame(indexed):
 def build_pca(quantized, palette565, delays):
     n = len(quantized)
     p = max(2, len(palette565))
-    default_ms = max(MIN_DELAY_MS, min(MAX_DELAY_MS, round(sum(delays) / n)))
+    default_ms = max(20, min(MAX_DELAY_MS, round(sum(delays) / n)))
     out = io.BytesIO()
     out.write(b"PCA1")
     out.write(struct.pack("<HHBBH", n, default_ms, p, 1, 0))
@@ -143,6 +148,31 @@ def build_pca(quantized, palette565, delays):
         out.write(struct.pack("<H", d))
     for f in quantized:
         out.write(pack_frame(f))
+    return out.getvalue()
+
+
+def pack_rgb565(frame):
+    """Encode a fitted RGB frame as little-endian RGB565 pixels."""
+    raw = bytearray()
+    rgb = frame.convert("RGB")
+    pixels = rgb.get_flattened_data() if hasattr(rgb, "get_flattened_data") else rgb.getdata()
+    for r, g, b in pixels:
+        value = ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)
+        raw.extend((value & 0xff, value >> 8))
+    return bytes(raw)
+
+
+def build_pca2(frames, delays):
+    """PCA2 stores each 128x64 frame directly as 16-bit RGB565."""
+    count = len(frames)
+    default_ms = max(20, min(MAX_DELAY_MS, round(sum(delays) / count)))
+    out = io.BytesIO()
+    out.write(b"PCA2")
+    out.write(struct.pack("<HHBBH", count, default_ms, 0, 1, 0))
+    for delay in delays:
+        out.write(struct.pack("<H", delay))
+    for frame in frames:
+        out.write(pack_rgb565(frame))
     return out.getvalue()
 
 

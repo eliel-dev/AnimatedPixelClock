@@ -35,11 +35,11 @@ static inline uint8_t normalizeAmbientStyle(int s) {
 #define SCOPE_GAIN_MAX 200
 #define SCOPE_GAIN_DEFAULT 100
 
-// Visualizer slots in use: 0,1,2,3,5,6,7,8. Slot 4 held a dropped effect; map it
+// Visualizer slots in use: 0,1,2,3,5,6,7,8-11. Slot 4 held a dropped effect; map it
 // and any out-of-range value to 0 (Classic EQ) so a device that still has it
 // saved lands on a real style.
 static inline uint8_t normalizeVizStyle(int s) {
-  return (s == 4 || s < 0 || s > 8) ? 0 : (uint8_t)s;
+  return (s == 4 || s < 0 || s > 11) ? 0 : (uint8_t)s;
 }
 
 // ========== Metric Structures ==========

@@ -1,6 +1,6 @@
 @echo off
 REM ---------------------------------------------------------------------------
-REM  Build a standalone Windows .exe of pc_stats_monitor_v4.py with PyInstaller
+REM  Build the standalone Windows Companion using the canonical PyInstaller spec
 REM
 REM  One-time setup (installs runtime deps + PyInstaller):
 REM    python -m pip install -r requirements.txt
@@ -14,6 +14,8 @@ REM  Notes:
 REM   * --windowed  -> no console window flashes at login (this is a background
 REM                    app that lives in the system tray). print() output is
 REM                    redirected to %APPDATA%\PCStatsMonitor\monitor.log.
+REM   * The spec extracts onefile files under the current user's Local AppData,
+REM     avoiding restricted TEMP paths and administrator requirements.
 REM   * --add-data "webui;webui" bundles the web UI (index.html/portal.css/js).
 REM     At runtime server.webui_dir() resolves it from sys._MEIPASS.
 REM   * --collect-all webview / pythonnet pulls in the pywebview EdgeChromium
@@ -46,41 +48,11 @@ if not defined PYI (
 echo Using: %PYI%
 
 REM Clean previous build artifacts so we don't ship stale bundles. The committed
-REM .spec is NOT deleted - this build drives PyInstaller via the flags below.
+REM .spec is the single source of PyInstaller build settings.
 if exist build rmdir /s /q build
 if exist dist  rmdir /s /q dist
 
-%PYI% ^
-  --onefile ^
-  --windowed ^
-  --name pc_stats_monitor_v4 ^
-  --splash splash.png ^
-  --paths "..\companion-common" ^
-  --add-data "..\companion-common\webui;webui" ^
-  --hidden-import server ^
-  --hidden-import app_window ^
-  --hidden-import app_state ^
-  --hidden-import audio_spectrum ^
-  --hidden-import animation_service ^
-  --hidden-import gif_converter ^
-  --hidden-import layout_engine ^
-  --hidden-import config_store ^
-  --collect-all webview ^
-  --collect-all pythonnet ^
-  --collect-all pystray ^
-  --collect-all PIL ^
-  --collect-all soundcard ^
-  --collect-all numpy ^
-  --hidden-import clr ^
-  --hidden-import wmi ^
-  --hidden-import pythoncom ^
-  --hidden-import pywintypes ^
-  --hidden-import win32com ^
-  --hidden-import win32com.client ^
-  --hidden-import win32api ^
-  --hidden-import win32con ^
-  --hidden-import win32timezone ^
-  pc_stats_monitor_v4.py
+%PYI% --workpath build --distpath dist pc_stats_monitor_v4.spec
 
 if errorlevel 1 (
   echo.

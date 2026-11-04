@@ -1,8 +1,8 @@
 /*
  * AnimatedPixelClock - Custom Animation Store
  *
- * LittleFS-backed storage for user-uploaded .pca animations (PCA1 format,
- * produced by tools/gif2pca.py) played by the "Custom animation" ambient
+ * LittleFS-backed storage for user-uploaded .pca animations (legacy PCA1 and
+ * full-color PCA2 produced by the PC companion) played by ambient
  * style. The 128KiB partition on 4MB boards supports short clips; upload
  * capacity is calculated from current free space with a filesystem margin.
  */
@@ -13,12 +13,14 @@
 #include <Arduino.h>
 #include <FS.h>
 
-// PCA1 layout: 12-byte header, palette, per-frame delay table, 4bpp frames.
+// PCA1 is legacy indexed 4bpp; PCA2 stores full RGB565 frames.
 #define PCA_MAGIC "PCA1"
+#define PCA2_MAGIC "PCA2"
 #define PCA_HEADER_BYTES 12
 #define PCA_MAX_FRAMES 360
 #define PCA_MAX_PALETTE 16
 #define PCA_FRAME_BYTES 4096  // 128*64 / 2
+#define PCA2_FRAME_BYTES 16384 // 128*64 RGB565
 #define PCA_MAX_BYTES (1536UL * 1024UL)  // hard upload cap
 
 #define ANIM_DIR "/anim"
@@ -31,6 +33,8 @@ struct PcaHeader {
   uint16_t defaultFrameMs;
   uint8_t paletteLen;
   uint8_t flags;
+  uint8_t format; // 1=PCA1 indexed, 2=PCA2 RGB565
+  uint32_t frameBytes;
 };
 
 // Mount LittleFS (formats on first use) and create the anim directory.

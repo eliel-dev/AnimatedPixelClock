@@ -462,6 +462,22 @@ class MicaDspNumericalParityTests(unittest.TestCase):
 
 
 class MicaDspTests(unittest.TestCase):
+    def test_audio_motion_capture_uses_unmodified_pcm_at_unity_gain(self):
+        streamer = audio.SpectrumStreamer("127.0.0.1", 4210)
+        loud = audio.np.full(audio.FRAMES, 0.2, dtype=audio.np.float32)
+        quiet = audio.np.full(audio.FRAMES, 0.01, dtype=audio.np.float32)
+        streamer._process_block(loud)
+        streamer._process_block(quiet)
+        audio.np.testing.assert_array_equal(streamer._sample_window[-audio.FRAMES:], quiet)
+        self.assertFalse(hasattr(streamer, "_mica_capture_gain"))
+
+    def test_audio_motion_silence_remains_zero(self):
+        silent = audio.SpectrumStreamer("127.0.0.1", 4210)
+        result = None
+        for _ in range(20):
+            result = silent._process_block(audio.np.zeros(audio.FRAMES, dtype=audio.np.float32))[1]
+        self.assertEqual(int(result.max()), 0, "silence must not be amplified")
+
     def test_b_weighting_dc_bin_is_unity(self):
         m = audio.build_b_weighting_multipliers(2048, 48000)
         self.assertAlmostEqual(float(m[0]), 1.0)
