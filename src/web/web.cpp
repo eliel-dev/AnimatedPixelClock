@@ -18,6 +18,12 @@
 #include "../timezones.h"
 #include "../viz/visualizer.h"
 #include "../weather/weather.h"
+#if defined(LUA_EFFECTS_ENABLED)
+#include "../lua/lua_effects_page.h"
+#endif
+#if defined(LUA_STORE_ENABLED)
+#include "../lua/lua_store.h"
+#endif
 #include "web_pages.h"
 #include <WebServer.h>
 #include <Update.h>
@@ -44,6 +50,11 @@ extern bool httpForceViz;
 
 // ========== Web Server Setup ==========
 static uint32_t runningFirmwareBytes = 0;
+#if defined(LUA_EFFECTS_ENABLED) && defined(LUA_STORE_ENABLED)
+static void handleLuaApi();
+static void handleLuaUploadDone();
+static void handleLuaUploadChunk();
+#endif
 
 void setupWebServer() {
  // Arduino's getSketchSize verifies the entire flash image. Cache it before
@@ -71,6 +82,12 @@ void setupWebServer() {
  server.on("/api/anim/list", HTTP_GET, handleAnimList);
  server.on("/api/anim/delete", HTTP_GET, handleAnimDelete);
  server.on("/api/anim/upload", HTTP_POST, handleAnimUploadDone, handleAnimUploadChunk);
+
+#if defined(LUA_EFFECTS_ENABLED) && defined(LUA_STORE_ENABLED)
+ server.on("/api/lua", HTTP_GET, handleLuaApi);
+ server.on("/api/lua", HTTP_POST, handleLuaApi);
+ server.on("/api/lua/upload", HTTP_POST, handleLuaUploadDone, handleLuaUploadChunk);
+#endif
 
  // Runtime control API (display power, mode, brightness, clock style, reboot)
  server.on("/api/status", HTTP_GET, handleStatus);
@@ -274,6 +291,9 @@ void handleSetBrightness() {
 
 // GET /api/mode/clock - force clock display even when the PC is online
 void handleModeClock() {
+#if defined(LUA_EFFECTS_ENABLED)
+ luaEffectStop();
+#endif
  httpForceClock = true;
  httpForceAmbient = false;
  httpForceViz = false;
@@ -283,6 +303,9 @@ void handleModeClock() {
 
 // GET /api/mode/auto - resume automatic mode (metrics when PC online, clock otherwise)
 void handleModeAuto() {
+#if defined(LUA_EFFECTS_ENABLED)
+ luaEffectStop();
+#endif
  httpForceClock = false;
  httpForceAmbient = false;
  httpForceViz = false;
@@ -292,6 +315,9 @@ void handleModeAuto() {
 
 // GET /api/mode/ambient - force the ambient screensaver regardless of schedule
 void handleModeAmbient() {
+#if defined(LUA_EFFECTS_ENABLED)
+ luaEffectStop();
+#endif
  httpForceAmbient = true;
  httpForceClock = false;
  httpForceViz = false;
@@ -302,6 +328,9 @@ void handleModeAmbient() {
 // GET /api/mode/viz - force the audio spectrum visualizer (needs the companion
 // streaming spectrum packets; falls back to the clock if the stream dies)
 void handleModeViz() {
+#if defined(LUA_EFFECTS_ENABLED)
+ luaEffectStop();
+#endif
  httpForceViz = true;
  httpForceClock = false;
  httpForceAmbient = false;
@@ -323,6 +352,9 @@ void handleSetClockStyle() {
    return;
  }
  settings.clockStyle = (uint8_t)id;
+#if defined(LUA_EFFECTS_ENABLED)
+ luaEffectStop();
+#endif
  resetClockAnimationState();
  server.send(200, "application/json",
              "{\"success\":true,\"clockStyle\":" + String(id) + "}");
@@ -451,6 +483,210 @@ void handleNotifyDismiss() {
  notifyDismiss();
  server.send(200, "application/json", "{\"success\":true}");
 }
+
+// ========== Sandboxed Lua effects API (N16R8 profile only) ==========
+#if defined(LUA_EFFECTS_ENABLED) && defined(LUA_STORE_ENABLED)
+static bool validLuaStem(const String& stem) {
+ if (!stem.length() || stem.length() > 24) return false;
+ for (size_t i = 0; i < stem.length(); ++i) {
+   const char c = stem[i];
+   if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+         (c >= '0' && c <= '9') || c == '_')) return false;
+ }
+ return true;
+}
+
+static int luaIndexForStem(const char* stem) {
+ if (!stem) return -1;
+ const uint8_t stored = luaStoreCount();
+ const uint8_t builtIn = (uint8_t)(luaEffectCount() - stored);
+ for (uint8_t i = 0; i < stored; ++i) {
+   char current[LUA_STORE_NAME_CAP];
+   if (luaStoreStem(i, current, sizeof(current)) && !strcmp(current, stem))
+     return builtIn + i;
+ }
+ return -1;
+}
+
+static void handleLuaApi() {
+ if (server.method() == HTTP_GET) {
+   JsonDocument doc;
+   doc["success"] = true;
+   doc["usable"] = luaStoreUsable();
+   doc["current"] = luaEffectCurrent();
+   doc["count"] = luaStoreCount();
+   doc["slots"] = LUA_USER_MAX;
+   doc["maxBytes"] = (uint32_t)luaStoreRoomBytes();
+   doc["freeBytes"] = (uint32_t)luaStoreFreeBytes();
+   JsonArray effects = doc["effects"].to<JsonArray>();
+   for (uint8_t i = 0; i < luaEffectCount(); ++i) {
+     JsonObject effect = effects.add<JsonObject>();
+     char name[LUA_EFFECT_NAME_CAP];
+     luaEffectName(i, name, sizeof(name));
+     effect["i"] = i;
+     effect["name"] = name;
+     effect["uploaded"] = luaEffectUploaded(i);
+     if (luaEffectUploaded(i)) {
+       char stem[LUA_STORE_NAME_CAP];
+       luaStoreStem((uint8_t)(i - (luaEffectCount() - luaStoreCount())), stem, sizeof(stem));
+       effect["stem"] = stem;
+       effect["bytes"] = luaStoreBytes((uint8_t)(i - (luaEffectCount() - luaStoreCount())));
+     }
+   }
+   String json;
+   serializeJson(doc, json);
+   server.send(200, "application/json", json);
+   return;
+ }
+
+ if (server.method() != HTTP_POST || !server.hasArg("plain")) {
+   server.send(400, "application/json", "{\"success\":false,\"error\":\"Envie um corpo JSON\"}");
+   return;
+ }
+ JsonDocument input;
+ if (deserializeJson(input, server.arg("plain"))) {
+   server.send(400, "application/json", "{\"success\":false,\"error\":\"JSON inválido\"}");
+   return;
+ }
+ const bool hasShow = !input["show"].isNull();
+ const bool hasDelete = !input["delete"].isNull();
+ const bool stop = input["stop"].is<bool>() && input["stop"].as<bool>();
+ if ((hasShow && hasDelete) || (stop && (hasShow || hasDelete))) {
+   server.send(400, "application/json", "{\"success\":false,\"error\":\"Escolha uma ação por vez\"}");
+   return;
+ }
+ if (hasShow) {
+   if (!input["show"].is<int>()) {
+     server.send(400, "application/json", "{\"success\":false,\"error\":\"Índice de efeito inválido\"}");
+     return;
+   }
+   const int index = input["show"].as<int>();
+   if (index < 0 || index >= luaEffectCount()) {
+     server.send(404, "application/json", "{\"success\":false,\"error\":\"Efeito não encontrado\"}");
+     return;
+   }
+   httpForceClock = true;
+   httpForceAmbient = false;
+   httpForceViz = false;
+   luaEffectsSelect((int16_t)index);
+ } else if (hasDelete) {
+   const char* stem = input["delete"] | "";
+   String name(stem);
+   if (!validLuaStem(name)) {
+     server.send(400, "application/json", "{\"success\":false,\"error\":\"Nome inválido\"}");
+     return;
+   }
+   luaEffectStop();
+   const int result = luaStoreDelete(name.c_str());
+   if (result != LUA_STORE_OK) {
+     server.send(result == LUA_STORE_ABSENT ? 404 : 409, "application/json",
+                 result == LUA_STORE_ABSENT
+                   ? "{\"success\":false,\"error\":\"Efeito não encontrado\"}"
+                   : "{\"success\":false,\"error\":\"Não foi possível remover o arquivo\"}");
+     return;
+   }
+ } else if (stop) {
+   luaEffectStop();
+ } else {
+   server.send(400, "application/json", "{\"success\":false,\"error\":\"Informe show, delete ou stop\"}");
+   return;
+ }
+ server.send(200, "application/json", "{\"success\":true}");
+}
+
+static const char* s_luaUploadError = nullptr;
+static char s_luaUploadErrorText[180];
+static String s_luaUploadName;
+static String s_luaActiveStem;
+static bool s_luaUploadSeen = false;
+
+static void handleLuaUploadChunk() {
+ HTTPUpload& upload = server.upload();
+ esp_task_wdt_reset();
+ char error[160];
+ if (upload.status == UPLOAD_FILE_START) {
+   s_luaUploadError = nullptr;
+   s_luaUploadSeen = true;
+   s_luaUploadName = server.arg("name");
+   if (!s_luaUploadName.length()) {
+     s_luaUploadName = upload.filename;
+     const int dot = s_luaUploadName.lastIndexOf('.');
+     if (dot > 0) s_luaUploadName.remove(dot);
+   }
+   if (!validLuaStem(s_luaUploadName)) {
+     s_luaUploadError = "O nome deve ter de 1 a 24 letras, números ou _";
+     return;
+   }
+   s_luaActiveStem = "";
+   const int current = luaEffectCurrent();
+   const uint8_t builtIn = (uint8_t)(luaEffectCount() - luaStoreCount());
+   if (current >= builtIn) {
+     char active[LUA_STORE_NAME_CAP];
+     if (luaStoreStem((uint8_t)(current - builtIn), active, sizeof(active)))
+       s_luaActiveStem = active;
+   }
+   if (!luaStoreBegin(s_luaUploadName.c_str(), error, sizeof(error))) {
+     snprintf(s_luaUploadErrorText, sizeof(s_luaUploadErrorText), "%s", error);
+     s_luaUploadError = s_luaUploadErrorText;
+   }
+ } else if (upload.status == UPLOAD_FILE_WRITE) {
+   if (s_luaUploadError) return;
+   if (!luaStoreWrite(upload.buf, upload.currentSize)) {
+     if (luaStoreUploadTooBig())
+       snprintf(s_luaUploadErrorText, sizeof(s_luaUploadErrorText),
+                "O script excede o espaço disponível (%u bytes)", (unsigned)luaStoreUploadRoom());
+     else
+       snprintf(s_luaUploadErrorText, sizeof(s_luaUploadErrorText), "Falha ao gravar no LittleFS");
+     s_luaUploadError = s_luaUploadErrorText;
+   }
+ } else if (upload.status == UPLOAD_FILE_END) {
+   if (s_luaUploadError) { luaStoreAbort(); return; }
+   if (!luaStoreFinish(error, sizeof(error))) {
+     snprintf(s_luaUploadErrorText, sizeof(s_luaUploadErrorText), "%s", error);
+     s_luaUploadError = s_luaUploadErrorText;
+     return;
+   }
+   if (s_luaActiveStem.length()) {
+     const int restored = luaIndexForStem(s_luaActiveStem.c_str());
+     if (restored >= 0) {
+       if (luaEffectCurrent() != restored) luaEffectsSelect((int16_t)restored);
+       if (s_luaActiveStem == s_luaUploadName) luaEffectsReload();
+     } else {
+       luaEffectStop();
+     }
+   }
+ } else if (upload.status == UPLOAD_FILE_ABORTED) {
+   luaStoreAbort();
+   s_luaUploadError = "O envio foi interrompido";
+ }
+}
+
+static void handleLuaUploadDone() {
+ JsonDocument doc;
+ if (!s_luaUploadSeen) {
+   doc["success"] = false;
+   doc["error"] = "O envio não continha um arquivo Lua";
+   String json; serializeJson(doc, json);
+   server.send(400, "application/json", json);
+   return;
+ }
+ s_luaUploadSeen = false;
+ if (s_luaUploadError) {
+   doc["success"] = false;
+   doc["error"] = s_luaUploadError;
+   String json; serializeJson(doc, json);
+   server.send(400, "application/json", json);
+   s_luaUploadError = nullptr;
+   return;
+ }
+ doc["success"] = true;
+ doc["name"] = s_luaUploadName;
+ doc["index"] = luaIndexForStem(s_luaUploadName.c_str());
+ doc["trial"] = luaEffectsTrialReport();
+ String json; serializeJson(doc, json);
+ server.send(200, "application/json", json);
+}
+#endif
 
 // ========== Custom Animation Storage API ==========
 // Uploaded .pca animations (tools/gif2pca.py) on LittleFS, played by ambient
@@ -779,6 +1015,14 @@ static String buildPcMetricsColorCard() {
 }
 
 static bool resolvePlaceholder(const char* n, String& out) {
+  if (!strcmp(n, "LUA_NAV_STYLE") || !strcmp(n, "LUA_PAGE_STYLE")) {
+#if defined(LUA_EFFECTS_ENABLED) && defined(LUA_STORE_ENABLED)
+    out = "";
+#else
+    out = "display:none";
+#endif
+    return true;
+  }
   if (!strcmp(n, "V_CYCLECONFIG")) { out = settings.cycleConfig; return true; }
   // --- Header / identity ---
   if (!strcmp(n, "VER")) { out = String(FIRMWARE_VERSION); return true; }
@@ -1279,7 +1523,11 @@ void handleSave() {
    strcpy(settings.cycleConfig, cycle.c_str());
  }
  if (server.hasArg("clockStyle")) {
- settings.clockStyle = server.arg("clockStyle").toInt();
+ const uint8_t requestedStyle = (uint8_t)server.arg("clockStyle").toInt();
+#if defined(LUA_EFFECTS_ENABLED)
+ if (requestedStyle != settings.clockStyle) luaEffectStop();
+#endif
+ settings.clockStyle = requestedStyle;
  }
 
  // Handle new timezone region selector (value is now an index into timezone database)
@@ -2219,7 +2467,13 @@ void handleImportConfig() {
  if (!doc["doomShowDate"].isNull()) settings.doomShowDate = doc["doomShowDate"];
  if (!doc["doomBurningDigits"].isNull()) settings.doomBurningDigits = doc["doomBurningDigits"];
  if (!doc["doomSmoothFire"].isNull()) settings.doomSmoothFire = doc["doomSmoothFire"];
- if (!doc["clockStyle"].isNull()) settings.clockStyle = doc["clockStyle"];
+ if (!doc["clockStyle"].isNull()) {
+   const uint8_t importedStyle = doc["clockStyle"].is<int>() ? (uint8_t)doc["clockStyle"].as<int>() : settings.clockStyle;
+#if defined(LUA_EFFECTS_ENABLED)
+   if (importedStyle != settings.clockStyle) luaEffectStop();
+#endif
+   settings.clockStyle = importedStyle;
+ }
  if (!doc["timezoneString"].isNull()) {
  const char* tz = doc["timezoneString"];
  if (tz && strlen(tz) < 64) {

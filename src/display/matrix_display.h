@@ -50,6 +50,12 @@ public:
   explicit MatrixDisplay(const HUB75_I2S_CFG &cfg) : MatrixPanel_I2S_DMA(cfg) {}
 
   inline void clearDisplay() { clearScreen(); }      // clear the (back) draw buffer
+  // Lua effects render into an RGB888 canvas before blitting. The DMA panel
+  // stores RGB565, so convert at the display boundary to keep the Lua raster
+  // independent of the panel driver.
+  inline void drawPixelRGB888(int16_t x, int16_t y, uint8_t r, uint8_t g, uint8_t b) {
+    drawPixel(x, y, color565(r, g, b));
+  }
   inline void display() {
     flipDMABuffer();
     lastFlipUs = micros();

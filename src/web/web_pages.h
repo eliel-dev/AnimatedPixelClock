@@ -66,6 +66,7 @@ static const char PAGE_HTML[] PROGMEM = R"PAGE(<!doctype html>
       <div class="nav-group">
         <div class="nav-label">Configuração</div>
         <button type="button" class="nav-item active" data-nav="clock">Relógio</button>
+        <button type="button" class="nav-item" data-nav="lua" style="%LUA_NAV_STYLE%">Efeitos Lua<span class="nv-tag">N16R8</span></button>
         <button type="button" class="nav-item" data-nav="display">Tela</button>
         <button type="button" class="nav-item" data-nav="viz">Visualizador de áudio<span class="nv-tag">Áudio</span></button>
         <button type="button" class="nav-item" data-nav="layout">Layout da tela<span class="nv-tag">PC</span></button>
@@ -730,6 +731,34 @@ static const char PAGE_HTML[] PROGMEM = R"PAGE(<!doctype html>
           %COLOR_GLOBAL%
         </section>
 
+        <!-- LUA EFFECTS -->
+        <section class="page" data-page="lua" style="%LUA_PAGE_STYLE%">
+          <div class="page-header">
+            <h1 class="page-h1">Efeitos Lua</h1>
+            <p class="page-lede">Instale efeitos da galeria NickoScope no relógio. O navegador baixa o script pela internet e envia ao ESP32 pela rede local.</p>
+          </div>
+          <div class="card">
+            <h2 class="card-title">Instalados no relógio</h2>
+            <p class="field-hint">Scripts ficam salvos no LittleFS. Cada efeito é validado e executado em sandbox antes de ser aceito.</p>
+            <div class="page-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin:14px 0">
+              <button type="button" class="btn btn-accent" id="luaStopBtn">Encerrar efeito</button>
+              <button type="button" class="btn" id="luaRefreshBtn">Atualizar lista</button>
+            </div>
+            <p class="field-hint" id="luaStatus" role="status">Carregando efeitos…</p>
+            <div id="luaInstalledList" style="display:grid;gap:10px"></div>
+          </div>
+          <div class="card">
+            <h2 class="card-title">Galeria NickoScope</h2>
+            <p class="field-hint">A galeria é pública no GitHub. O aparelho que abre este portal precisa de internet; o ESP32 recebe o script diretamente do navegador e não precisa acessar a internet.</p>
+            <div class="page-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin:14px 0">
+              <button type="button" class="btn" id="luaGalleryReloadBtn">Carregar galeria</button>
+              <a class="btn" href="https://github.com/NickoScope/AnimatedPixelClock/tree/main/gallery" target="_blank" rel="noopener">Abrir no GitHub</a>
+            </div>
+            <p class="field-hint" id="luaGalleryStatus" role="status">A galeria ainda não foi carregada.</p>
+            <div id="luaGalleryList" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px"></div>
+          </div>
+        </section>
+
         <!-- DISPLAY -->
         <section class="page" data-page="display">
           <div class="page-header">
@@ -1349,6 +1378,78 @@ if (!animSel || !animSel.value) { animStatus('Select an animation to delete.'); 
 fetch('/api/anim/delete?name=' + encodeURIComponent(animSel.value)).then(function (r) { return r.json(); })
 .then(function () { animStatus('Deleted.'); animRefresh(); }).catch(function () {});
 });
+var luaApiStatus = $('#luaStatus'), luaGalleryStatus = $('#luaGalleryStatus');
+var luaInstalledList = $('#luaInstalledList'), luaGalleryList = $('#luaGalleryList');
+var luaGalleryLoaded = false, luaDeviceInfo = null;
+var LUA_GALLERY_BASE = 'https://raw.githubusercontent.com/NickoScope/AnimatedPixelClock/main/gallery/';
+function luaStatus(text) { if (luaApiStatus) luaApiStatus.textContent = text; }
+function luaGalleryMessage(text) { if (luaGalleryStatus) luaGalleryStatus.textContent = text; }
+function luaPost(data) {
+return fetch('/api/lua', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data) })
+.then(function (r) { return r.json().then(function (d) { if (!r.ok || !d.success) throw new Error(d.error || 'A solicitação falhou'); return d; }); });
+}
+function luaRefresh() {
+if (!luaInstalledList) return Promise.resolve();
+luaStatus('Lendo efeitos instalados…');
+return fetch('/api/lua').then(function (r) { return r.json().then(function (d) { if (!r.ok || !d.success) throw new Error(d.error || 'O firmware não aceitou a solicitação'); return d; }); }).then(function (d) {
+luaDeviceInfo = d;
+luaInstalledList.innerHTML = '';
+var effects = d.effects || [];
+if (!d.usable) { luaStatus('O armazenamento de efeitos não está disponível neste firmware.'); return d; }
+if (!effects.length) {
+var empty = document.createElement('p'); empty.className = 'field-hint'; empty.textContent = 'Nenhum efeito instalado. Escolha um na galeria abaixo.'; luaInstalledList.appendChild(empty);
+} else effects.forEach(function (effect) {
+var row = document.createElement('div'); row.className = 'subcard'; row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap';
+var info = document.createElement('div');
+var title = document.createElement('strong'); title.textContent = effect.name || effect.stem || 'Efeito'; info.appendChild(title);
+var meta = document.createElement('div'); meta.className = 'field-hint'; meta.textContent = (effect.bytes ? Math.ceil(effect.bytes / 1024) + ' KiB · ' : '') + (Number(effect.i) === Number(d.current) ? 'em exibição' : (effect.uploaded ? 'salvo no relógio' : 'integrado ao firmware')); info.appendChild(meta);
+var actions = document.createElement('div'); actions.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap';
+var show = document.createElement('button'); show.type = 'button'; show.className = 'btn btn-accent'; show.textContent = Number(effect.i) === Number(d.current) ? 'Exibindo' : 'Mostrar'; show.disabled = Number(effect.i) === Number(d.current);
+show.addEventListener('click', function () { show.disabled = true; luaPost({show:Number(effect.i)}).then(function () { luaStatus('Efeito enviado para a tela do relógio.'); return luaRefresh(); }).catch(function (e) { luaStatus('Não foi possível mostrar o efeito: ' + e.message); show.disabled = false; }); }); actions.appendChild(show);
+if (effect.uploaded && effect.stem) {
+var del = document.createElement('button'); del.type = 'button'; del.className = 'btn'; del.textContent = 'Excluir';
+del.addEventListener('click', function () { if (!window.confirm('Excluir ' + (effect.name || effect.stem) + ' do relógio?')) return; del.disabled = true; luaPost({delete:effect.stem}).then(function () { luaStatus('Efeito excluído.'); return luaRefresh(); }).catch(function (e) { luaStatus('Não foi possível excluir: ' + e.message); del.disabled = false; }); }); actions.appendChild(del);
+}
+row.appendChild(info); row.appendChild(actions); luaInstalledList.appendChild(row);
+});
+luaStatus(effects.length + ' efeito(s) disponível(is) · ' + Math.floor((d.freeBytes || 0) / 1024) + ' KiB livres · ' + (d.count || 0) + '/' + (d.slots || 36) + ' arquivos');
+return d;
+}).catch(function (e) { luaStatus('Não foi possível ler a lista do relógio: ' + e.message); });
+}
+function luaLoadGallery(force) {
+if (!luaGalleryList || (luaGalleryLoaded && !force)) return Promise.resolve();
+luaGalleryLoaded = true; luaGalleryMessage('Conectando à galeria pública do GitHub…'); luaGalleryList.innerHTML = '';
+return fetch(LUA_GALLERY_BASE + 'index.json', {cache:force ? 'no-store' : 'default'}).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }).then(function (manifest) {
+if (!manifest || !Array.isArray(manifest.effects)) throw new Error('Formato de galeria inesperado');
+luaGalleryList.innerHTML = '';
+manifest.effects.forEach(function (effect) {
+if (!effect || !/^[a-zA-Z0-9_]{1,24}$/.test(effect.stem || '') || !/^[a-zA-Z0-9_-]{1,32}\.lua$/.test(effect.file || '')) return;
+var card = document.createElement('article'); card.className = 'subcard';
+var title = document.createElement('strong'); title.textContent = effect.name || effect.stem; card.appendChild(title);
+var desc = document.createElement('p'); desc.className = 'field-hint'; desc.textContent = effect.line || 'Efeito Lua para matriz 128×64.'; card.appendChild(desc);
+if (effect.preview && /^preview\/[a-zA-Z0-9_-]+\.png$/.test(effect.preview)) {
+var img = document.createElement('img'); img.src = LUA_GALLERY_BASE + effect.preview; img.alt = 'Prévia de ' + (effect.name || effect.stem); img.loading = 'lazy'; img.style.cssText = 'display:block;width:100%;height:112px;object-fit:cover;border-radius:8px;margin:8px 0'; img.onerror = function () { img.remove(); }; card.appendChild(img);
+}
+var foot = document.createElement('p'); foot.className = 'field-hint'; foot.textContent = Math.ceil((Number(effect.bytes) || 0) / 1024) + ' KiB' + (effect.by ? ' · ' + effect.by : ''); card.appendChild(foot);
+var button = document.createElement('button'); button.type = 'button'; button.className = 'btn btn-accent'; button.textContent = 'Adicionar ao relógio';
+button.addEventListener('click', function () { button.disabled = true; button.textContent = 'Baixando…'; luaGalleryMessage('Baixando ' + (effect.name || effect.stem) + ' no navegador…');
+fetch(LUA_GALLERY_BASE + encodeURIComponent(effect.file)).then(function (r) { if (!r.ok) throw new Error('O GitHub respondeu HTTP ' + r.status); return r.blob(); }).then(function (blob) {
+if (luaDeviceInfo && blob.size > Number(luaDeviceInfo.maxBytes || 0)) throw new Error('O script tem ' + Math.ceil(blob.size / 1024) + ' KiB, mas há somente ' + Math.floor(Number(luaDeviceInfo.maxBytes || 0) / 1024) + ' KiB disponíveis no relógio.');
+var form = new FormData(); form.append('script', blob, effect.file);
+luaGalleryMessage('Enviando para o relógio pela rede local e validando…');
+return fetch('/api/lua/upload?name=' + encodeURIComponent(effect.stem), {method:'POST', body:form}).then(function (r) { return r.json().then(function (d) { if (!r.ok || !d.success) throw new Error(d.error || 'O relógio recusou o script'); return d; }); });
+}).then(function () { luaGalleryMessage((effect.name || effect.stem) + ' instalado. Use “Mostrar” na lista de instalados.'); return luaRefresh(); }).then(function () { button.textContent = 'Adicionar novamente'; button.disabled = false; }).catch(function (e) { luaGalleryMessage('Não foi possível adicionar o efeito: ' + e.message + '. Confira a internet deste navegador e a conexão local com o relógio.'); button.textContent = 'Tentar novamente'; button.disabled = false; });
+}); card.appendChild(button); luaGalleryList.appendChild(card);
+});
+luaGalleryMessage(manifest.effects.length + ' efeitos encontrados. O download acontece no navegador; o ESP32 só recebe o arquivo pela rede local.');
+}).catch(function (e) { luaGalleryLoaded = false; luaGalleryMessage('Não foi possível acessar a galeria do GitHub (' + e.message + '). Confira se este aparelho tem internet; os efeitos só podem ser baixados pelo navegador.'); });
+}
+var luaRefreshBtn = $('#luaRefreshBtn'), luaStopBtn = $('#luaStopBtn'), luaGalleryReloadBtn = $('#luaGalleryReloadBtn');
+if (luaRefreshBtn) luaRefreshBtn.addEventListener('click', luaRefresh);
+if (luaStopBtn) luaStopBtn.addEventListener('click', function () { luaStopBtn.disabled = true; luaPost({stop:true}).then(function () { luaStatus('Efeito encerrado. A tela voltou ao relógio.'); return luaRefresh(); }).catch(function (e) { luaStatus('Não foi possível encerrar: ' + e.message); }).finally(function () { luaStopBtn.disabled = false; }); });
+if (luaGalleryReloadBtn) luaGalleryReloadBtn.addEventListener('click', function () { luaLoadGallery(true); });
+var luaNavButton = $('[data-nav="lua"]');
+if (luaNavButton) luaNavButton.addEventListener('click', function () { luaRefresh(); luaLoadGallery(false); });
 function vizCall(path, okMsg) {
 fetch(path).then(function (r) { return r.json(); })
 .then(function () { var s = $('#vizRunStatus'); if (s) s.textContent = okMsg; })

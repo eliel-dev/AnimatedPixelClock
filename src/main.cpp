@@ -90,6 +90,9 @@ int getOptimalRefreshRate();
 #include "viz/visualizer.h"
 #include "weather/weather.h"
 #include "web/web.h"
+#if defined(LUA_EFFECTS_ENABLED)
+#include "lua/lua_effects_page.h"
+#endif
 
 
 // ========== Helper Functions ==========
@@ -136,6 +139,10 @@ int getOptimalRefreshRate() {
   if (httpForceViz && vizShouldDisplay()) {
     return 60;
   }
+
+#if defined(LUA_EFFECTS_ENABLED)
+  if (luaEffectCurrent() >= 0) return luaEffectsRefreshHz();
+#endif
 
   if (!metricData.online || httpForceClock || httpForceAmbient) {
     // Clock mode (offline OR forced via HTTP)
@@ -236,6 +243,11 @@ void setup() {
 
   // Mount the animation filesystem (formats the partition on first use)
   animStoreInit();
+
+#if defined(LUA_EFFECTS_ENABLED)
+  // Lua shares the LittleFS mount made above, but keeps its scripts under /lua.
+  luaEffectsBegin();
+#endif
 
   // Initialize display
   displayAvailable = initDisplay();
@@ -382,9 +394,14 @@ void loop() {
   // Resolve the content before scheduling so custom GIF playback stays at a
   // fixed 30 Hz even when another mode would normally use adaptive refresh.
   bool showViz = httpForceViz && vizShouldDisplay();
+#if defined(LUA_EFFECTS_ENABLED)
+  bool showLua = luaEffectCurrent() >= 0;
+#else
+  bool showLua = false;
+#endif
   bool showStats =
-      !showViz && metricData.online && !httpForceClock && !httpForceAmbient;
-  bool customAnimationDisplay = !showViz && !showStats && ambientActive() &&
+      !showViz && !showLua && metricData.online && !httpForceClock && !httpForceAmbient;
+  bool customAnimationDisplay = !showViz && !showLua && !showStats && ambientActive() &&
                                 settings.ambientStyle == 6;
   bool displayReady = displayAvailable && !isDisplayForcedOff();
   bool displayTickDue = false;
@@ -437,21 +454,25 @@ void loop() {
     // black is the worst offender - a visible dark flash on full-screen
     // content. The custom animation player overwrites every pixel of the
     // frame, so skip the redundant clear when it is what renders this tick.
-    bool animFullRepaint = !showViz && !showStats && ambientActive() &&
+    bool animFullRepaint = !showViz && !showLua && !showStats && ambientActive() &&
                            settings.ambientStyle == 6 && ambientCustomPlaying();
     // Doom Fire paints every pixel itself. Clearing first would blank the
     // buffer the panel is still scanning, which is exactly the dark flash the
     // comment below describes - and it showed as flicker along the bottom,
     // where the brightest rows are drawn last.
     uint8_t styleNow = settings.clockStyle == 9 ? cycleActiveStyle : settings.clockStyle;
-    bool doomFullRepaint = !showViz && !showStats && !ambientActive() && styleNow == 17;
+    bool doomFullRepaint = !showViz && !showLua && !showStats && !ambientActive() && styleNow == 17;
     // Bright starfield details make partial scans visible. Do not clear/reuse
     // the previous front buffer until the queued flip has settled.
     if (showViz && settings.vizStyle == 5) display.waitForScanCompletion();
-    if (!animFullRepaint && !doomFullRepaint) display.clearDisplay();
+    if (!animFullRepaint && !doomFullRepaint && !showLua) display.clearDisplay();
 
     if (showViz) {
       displayVisualizer();
+    } else if (showLua) {
+#if defined(LUA_EFFECTS_ENABLED)
+      luaEffectsRender();
+#endif
     } else
     // Show error status if PC is connected but LHM has issues
     if (showStats && metricData.status != STATUS_OK && metricData.status != 0) {
