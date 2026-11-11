@@ -1,0 +1,56 @@
+# Builds the Windows companion app into a standalone .exe (PyInstaller).
+#
+# Trigger manually from the Actions tab ("Run workflow"), or push a change
+# touching the companion app sources. The .exe is published as a run artifact:
+# download the zip from Actions -> (this run) -> Artifacts.
+#
+# PyInstaller cannot cross-compile, so the build runs on a Windows runner.
+# build_exe.bat drives the committed pc_stats_monitor_v4.spec.
+# The `< NUL` redirect makes every `pause` inside build_exe.bat return
+# immediately instead of blocking the CI job.
+
+name: Windows companion .exe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [WSL]
+    paths:
+      - "PC-Companion-App-v4/win-companion/**"
+      - "PC-Companion-App-v4/companion-common/**"
+      - ".github/workflows/build-companion-exe.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-exe:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: PC-Companion-App-v4/win-companion/requirements.txt
+
+      - name: Install runtime deps + PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r PC-Companion-App-v4/win-companion/requirements.txt
+          python -m pip install pyinstaller
+
+      - name: Build the .exe
+        shell: cmd
+        run: PC-Companion-App-v4\win-companion\build_exe.bat < NUL
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pc_stats_monitor_v4.exe
+          path: PC-Companion-App-v4/win-companion/dist/pc_stats_monitor_v4.exe
+          if-no-files-found: error
