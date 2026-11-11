@@ -37,6 +37,7 @@ import shutil
 import subprocess
 import sys
 import struct
+from collections.abc import Sequence
 from pathlib import Path
 
 # Variants published by the web flasher.
@@ -115,7 +116,7 @@ def run(cmd, cwd=REPO_ROOT):
         sys.exit(f"error: command failed with exit code {result.returncode}")
 
 
-def build_envs(pio_path: str, variants):
+def build_envs(pio_path: str, variants: Sequence[tuple[str, str, str]]):
     """Build every selected variant env in a single PlatformIO invocation."""
     cmd = [pio_path, "run"]
     for env, *_ in variants:
@@ -127,7 +128,7 @@ def build_dir(env: str) -> Path:
     return REPO_ROOT / ".pio" / "build" / env
 
 
-def refresh_build_metadata(pio_path: str, variants):
+def refresh_build_metadata(pio_path: str, variants: Sequence[tuple[str, str, str]]):
     """Ask the selected platform for its actual flash parts and offsets."""
     cmd = [pio_path, "run", "-t", "idedata"]
     for env, *_ in variants:
@@ -259,6 +260,8 @@ def main():
     variants = VARIANTS
     if args.boards:
         wanted = {b.strip() for b in args.boards.split(",") if b.strip()}
+        if not wanted:
+            parser.error("--boards requires at least one board name")
         known = {name for v in VARIANTS for name in (v[0], v[1])}
         unknown = wanted - known
         if unknown:
@@ -270,6 +273,8 @@ def main():
     version = read_version()
     if args.version and normalize_version(args.version) != version:
         parser.error("Requested version differs from FIRMWARE_VERSION; update config.h and rebuild")
+    if args.no_companion and args.companion != COMPANION_EXE:
+        parser.error("--companion cannot be used with --no-companion")
     if not args.no_companion and (not args.companion.is_file()
                                   or args.companion.read_bytes()[:2] != b"MZ"):
         parser.error("Build the Windows companion first, or supply --companion with a valid EXE")
@@ -313,9 +318,14 @@ def main():
     else:
         shutil.copy2(args.companion, ota_dir / COMPANION_EXE.name)
         release_names.append(COMPANION_EXE.name)
+    # A subset run shares its release directories: keep same-release files
+    # listed so the checksums never silently lose entries.
+    release_names = sorted({*release_names, *(p.name for p in ota_dir.iterdir()
+                                              if p.is_file() and p.name != "SHA256SUMS.txt")})
+    docs_names = {f"AnimatedPixelClock-{fid}-{version}-Full.bin" for _, fid, _ in variants}
+    docs_names |= {p.name for p in DOCS_LATEST.iterdir() if p.is_file() and f"-{version}-" in p.name}
     write_checksums(ota_dir, release_names)
-    write_checksums(DOCS_LATEST,
-                    [f"AnimatedPixelClock-{fid}-{version}-Full.bin" for _, fid, _ in variants])
+    write_checksums(DOCS_LATEST, sorted(docs_names))
     write_version_file(version)
     print(f"  SHA256SUMS.txt; VERSION ({version})")
 
