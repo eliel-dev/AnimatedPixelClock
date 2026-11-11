@@ -481,6 +481,16 @@ The `matrix-s3-bringup` / `matrix-wroom-bringup` / `matrix-waveshare-bringup`
 environments build a standalone panel self-test (`bringup/hello_matrix.cpp`) with six
 test patterns, useful for verifying wiring before flashing the full firmware.
 
+### CI builds (no toolchain needed)
+
+Every push to this branch runs the **Firmware .bin (WROOM)** GitHub Actions workflow,
+which builds the WROOM firmware and publishes a `firmware-v<version>-wroom` artifact
+with the merged Full image (flash at `0x0` with `esptool write_flash 0x0
+firmware-v<version>-wroom.bin`), the `OTA_ONLY_...bin` for web-UI updates and
+`SHA256SUMS.txt`. Download it from the run's Artifacts section; no local PlatformIO
+install required. The Windows companion `.exe` is built the same way by the
+**Windows companion .exe** workflow.
+
 ### First-time WiFi setup
 
 With no saved WiFi credentials, the device opens an access point named

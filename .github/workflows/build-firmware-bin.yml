@@ -1,0 +1,77 @@
+# Builds the ESP32-S3 firmware and publishes flash-ready .bin images as a run
+# artifact (WROOM devkit variant only - ESP32-S3-WROOM-1 N16R8, 16MB flash).
+#
+# Trigger manually from the Actions tab ("Run workflow"), or push a change
+# touching the firmware sources. Uses release.py so the artifact carries the
+# merged Full image (flashable at 0x0 with esptool / ESP Web Tools), the
+# OTA-only image and SHA256SUMS.txt - not a raw firmware.bin.
+#
+# Download the zip from Actions -> (this run) -> Artifacts.
+
+name: Firmware .bin (WROOM)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [WSL]
+    paths:
+      - "src/**"
+      - "include/**"
+      - "lib/**"
+      - "platformio.ini"
+      - "release.py"
+      - ".github/workflows/build-firmware-bin.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: firmware-bin-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-firmware:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PlatformIO Core
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install platformio
+
+      # Toolchains for espressif32@6.12.0 are a few hundred MB; the cache cuts
+      # minutes off every run after the first.
+      - name: Cache PlatformIO packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-espressif32-6.12.0-${{ hashFiles('platformio.ini') }}
+          restore-keys: |
+            pio-espressif32-6.12.0-
+
+      # Drop committed release files from the checkout so the artifact contains
+      # only freshly built bins (release.py regenerates the version directory).
+      - name: Clear stale release files
+        run: rm -rf release
+
+      - name: Build + package firmware (WROOM only)
+        run: python release.py --no-companion --boards wroom
+
+      - name: Read firmware version
+        id: version
+        run: echo "version=$(grep -oP '#define\s+FIRMWARE_VERSION\s+"\K[^"]+' src/config/config.h)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-v${{ steps.version.outputs.version }}-wroom
+          path: release/v${{ steps.version.outputs.version }}/
+          if-no-files-found: error

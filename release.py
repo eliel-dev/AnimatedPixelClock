@@ -26,6 +26,7 @@ Usage:
     python release.py                 # build + package every variant
     python release.py --skip-build    # package whatever .pio/build already has
     python release.py v2.1.0          # require this version to match config.h
+    python release.py --no-companion --boards wroom   # CI: one variant, firmware only
 """
 
 import argparse
@@ -114,10 +115,10 @@ def run(cmd, cwd=REPO_ROOT):
         sys.exit(f"error: command failed with exit code {result.returncode}")
 
 
-def build_envs(pio_path: str):
-    """Build every variant env in a single PlatformIO invocation."""
+def build_envs(pio_path: str, variants):
+    """Build every selected variant env in a single PlatformIO invocation."""
     cmd = [pio_path, "run"]
-    for env, *_ in VARIANTS:
+    for env, *_ in variants:
         cmd.extend(["-e", env])
     run(cmd)
 
@@ -126,10 +127,10 @@ def build_dir(env: str) -> Path:
     return REPO_ROOT / ".pio" / "build" / env
 
 
-def refresh_build_metadata(pio_path: str):
+def refresh_build_metadata(pio_path: str, variants):
     """Ask the selected platform for its actual flash parts and offsets."""
     cmd = [pio_path, "run", "-t", "idedata"]
-    for env, *_ in VARIANTS:
+    for env, *_ in variants:
         cmd.extend(["-e", env])
     result = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True,
                             encoding="utf-8", errors="replace")
@@ -246,39 +247,56 @@ def main():
                         help="Expected version, must match config.h")
     parser.add_argument("--skip-build", action="store_true",
                         help="Skip the PlatformIO build (assume .pio/build is current)")
+    parser.add_argument("--no-companion", action="store_true",
+                        help="Skip the Windows companion EXE (CI firmware-only releases)")
+    parser.add_argument("--boards", default=None,
+                        help="Comma-separated subset of variants by env name or firmware "
+                             "id, e.g. 'wroom'; default: every variant")
     parser.add_argument("--companion", type=Path, default=COMPANION_EXE,
                         help="Prebuilt Windows companion to include (not rebuilt by this script)")
     args = parser.parse_args()
 
+    variants = VARIANTS
+    if args.boards:
+        wanted = {b.strip() for b in args.boards.split(",") if b.strip()}
+        known = {name for v in VARIANTS for name in (v[0], v[1])}
+        unknown = wanted - known
+        if unknown:
+            parser.error(
+                "Unknown board(s): " + ", ".join(sorted(unknown))
+                + " (known: " + ", ".join(f"{env} ({fid})" for env, fid, *_ in VARIANTS) + ")")
+        variants = [v for v in VARIANTS if v[0] in wanted or v[1] in wanted]
+
     version = read_version()
     if args.version and normalize_version(args.version) != version:
         parser.error("Requested version differs from FIRMWARE_VERSION; update config.h and rebuild")
-    if not args.companion.is_file() or args.companion.read_bytes()[:2] != b"MZ":
+    if not args.no_companion and (not args.companion.is_file()
+                                  or args.companion.read_bytes()[:2] != b"MZ"):
         parser.error("Build the Windows companion first, or supply --companion with a valid EXE")
 
     ota_dir = REPO_ROOT / "release" / version
 
     print(f"AnimatedPixelClock web-flasher release: {version}")
-    print("Variants: " + ", ".join(f"{env} -> {fid}" for env, fid, *_ in VARIANTS))
+    print("Variants: " + ", ".join(f"{env} -> {fid}" for env, fid, *_ in variants))
 
     pio = locate_pio()
     print(f"PlatformIO: {pio}")
     if not args.skip_build:
-        build_envs(pio)
+        build_envs(pio, variants)
     else:
         print("Skipping build (--skip-build)")
 
-    refresh_build_metadata(pio)
+    refresh_build_metadata(pio, variants)
     # Validate every variant before changing any published file.
-    images = {env: prepare_full_bin(env, version) for env, *_ in VARIANTS}
+    images = {env: prepare_full_bin(env, version) for env, *_ in variants}
 
     print("\n--- Web flasher images (docs/firmware/latest/) ---")
-    for env, fid, _label in VARIANTS:
+    for env, fid, _label in variants:
         out = DOCS_LATEST / f"AnimatedPixelClock-{fid}-{version}-Full.bin"
         write_full_bin(images[env], out)
 
     print(f"\n--- GitHub Release images (release/{version}/) ---")
-    for env, fid, _label in VARIANTS:
+    for env, fid, _label in variants:
         # Full 0x0 image for new devices - same bytes as the docs flasher image.
         full_src = DOCS_LATEST / f"AnimatedPixelClock-{fid}-{version}-Full.bin"
         full_out = ota_dir / f"firmware-{version}-{fid}.bin"
@@ -288,13 +306,18 @@ def main():
         # OTA-only image for existing devices (web UI update).
         copy_ota_bin(env, ota_dir / f"OTA_ONLY_firmware-{version}-{fid}.bin")
 
-    shutil.copy2(args.companion, ota_dir / COMPANION_EXE.name)
-    release_names = [name for _, fid, _ in VARIANTS
+    release_names = [name for _, fid, _ in variants
                      for name in (f"firmware-{version}-{fid}.bin", f"OTA_ONLY_firmware-{version}-{fid}.bin")]
-    write_checksums(ota_dir, release_names + [COMPANION_EXE.name])
-    write_checksums(DOCS_LATEST, [f"AnimatedPixelClock-{fid}-{version}-Full.bin" for _, fid, _ in VARIANTS])
+    if args.no_companion:
+        print("  Companion: skipped (--no-companion)")
+    else:
+        shutil.copy2(args.companion, ota_dir / COMPANION_EXE.name)
+        release_names.append(COMPANION_EXE.name)
+    write_checksums(ota_dir, release_names)
+    write_checksums(DOCS_LATEST,
+                    [f"AnimatedPixelClock-{fid}-{version}-Full.bin" for _, fid, _ in variants])
     write_version_file(version)
-    print(f"  Companion: {COMPANION_EXE.name}; SHA256SUMS.txt; VERSION ({version})")
+    print(f"  SHA256SUMS.txt; VERSION ({version})")
 
     print("\n" + "=" * 60)
     print(f"Release {version} ready.")
@@ -312,7 +335,9 @@ def main():
     print(f'  git commit -m "release: publish {version}"')
     print("  git push origin main")
     print(f"  Create tag {version} at that commit, then publish a GitHub Release with")
-    print(f"  the {2 * len(VARIANTS)} BINs, {COMPANION_EXE.name} and SHA256SUMS.txt from {ota_dir}.")
+    print(f"  the {2 * len(variants)} BINs"
+          + ("" if args.no_companion else f", {COMPANION_EXE.name}")
+          + f" and SHA256SUMS.txt from {ota_dir}.")
 
 
 if __name__ == "__main__":
