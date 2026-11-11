@@ -5,11 +5,11 @@ Este firmware habilita efeitos Lua somente no perfil `matrix-s3-wroom`, destinad
 ## Como usar
 
 1. Conecte o navegador à mesma rede local do relógio e abra o portal.
-2. Entre em **Efeitos Lua** e carregue a galeria pública.
-3. Escolha **Adicionar ao relógio**. O navegador busca o script no GitHub e envia o arquivo ao ESP32 pela rede local; o ESP32 não precisa de acesso à internet.
+2. Entre em **Efeitos Lua** e escolha um arquivo `.lua` do computador para enviar, ou carregue a galeria pública.
+3. O navegador envia o script ao ESP32 pela rede local; o ESP32 não precisa de acesso à internet. O arquivo precisa ter de 1 a 24 letras, números ou `_` no nome (sem contar `.lua`).
 4. Na lista de instalados, use **Mostrar** para exibir o efeito ou **Excluir** para removê-lo. **Encerrar efeito** volta à tela de relógio. Selecionar outro modo de tela também encerra o efeito.
 
-A galeria depende de internet no aparelho que abriu o portal. Se o GitHub estiver inacessível, os efeitos já instalados continuam disponíveis.
+A galeria deste repositório depende de internet no aparelho que abriu o portal. Se o GitHub estiver inacessível, os efeitos já instalados continuam disponíveis; arquivos `.lua` também podem ser enviados diretamente do computador.
 
 ## Armazenamento e limites
 
@@ -25,4 +25,4 @@ A galeria depende de internet no aparelho que abriu o portal. Se o GitHub estive
 - `POST /api/lua` aceita `{"show": 0}`, `{"delete": "nome_do_efeito"}` ou `{"stop": true}`.
 - `POST /api/lua/upload?name=nome_do_efeito` recebe um arquivo Lua em uma parte multipart chamada `script`. O nome aceita de 1 a 24 letras, números e sublinhados.
 
-A galeria usada pelo portal é [`NickoScope/AnimatedPixelClock/gallery`](https://github.com/NickoScope/AnimatedPixelClock/tree/main/gallery). Ela é lida pelo navegador; o firmware não consulta serviços externos.
+A galeria usada pelo portal está em [`gallery/`](../../gallery/), neste repositório. Os scripts foram migrados da [galeria NickoScope/AnimatedPixelClock](https://github.com/NickoScope/AnimatedPixelClock/tree/main/gallery) e mantêm a licença MIT e os créditos de origem. Ela é lida pelo navegador; o firmware não consulta serviços externos.
