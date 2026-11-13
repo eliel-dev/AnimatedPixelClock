@@ -393,16 +393,18 @@ void loop() {
 
   // Resolve the content before scheduling so custom GIF playback stays at a
   // fixed 30 Hz even when another mode would normally use adaptive refresh.
-  bool showViz = httpForceViz && vizShouldDisplay();
+  uint8_t testR = 0, testG = 0, testB = 0;
+  bool showColorTest = webColorTestGetColor(testR, testG, testB);
+  bool showViz = !showColorTest && httpForceViz && vizShouldDisplay();
 #if defined(LUA_EFFECTS_ENABLED)
-  bool showLua = luaEffectCurrent() >= 0;
+  bool showLua = !showColorTest && luaEffectCurrent() >= 0;
 #else
   bool showLua = false;
 #endif
   bool showStats =
-      !showViz && !showLua && metricData.online && !httpForceClock && !httpForceAmbient;
-  bool customAnimationDisplay = !showViz && !showLua && !showStats && ambientActive() &&
-                                settings.ambientStyle == 6;
+      !showColorTest && !showViz && !showLua && metricData.online && !httpForceClock && !httpForceAmbient;
+  bool customAnimationDisplay = !showColorTest && !showViz && !showLua && !showStats &&
+                                ambientActive() && settings.ambientStyle == 6;
   bool displayReady = displayAvailable && !isDisplayForcedOff();
   bool displayTickDue = false;
 
@@ -454,20 +456,26 @@ void loop() {
     // black is the worst offender - a visible dark flash on full-screen
     // content. The custom animation player overwrites every pixel of the
     // frame, so skip the redundant clear when it is what renders this tick.
-    bool animFullRepaint = !showViz && !showLua && !showStats && ambientActive() &&
+    bool animFullRepaint = !showColorTest && !showViz && !showLua && !showStats && ambientActive() &&
                            settings.ambientStyle == 6 && ambientCustomPlaying();
     // Doom Fire paints every pixel itself. Clearing first would blank the
     // buffer the panel is still scanning, which is exactly the dark flash the
     // comment below describes - and it showed as flicker along the bottom,
     // where the brightest rows are drawn last.
     uint8_t styleNow = settings.clockStyle == 9 ? cycleActiveStyle : settings.clockStyle;
-    bool doomFullRepaint = !showViz && !showLua && !showStats && !ambientActive() && styleNow == 17;
+    bool doomFullRepaint = !showColorTest && !showViz && !showLua && !showStats &&
+                           !ambientActive() && styleNow == 17;
     // Bright starfield details make partial scans visible. Do not clear/reuse
     // the previous front buffer until the queued flip has settled.
-    if (showViz && settings.vizStyle == 5) display.waitForScanCompletion();
-    if (!animFullRepaint && !doomFullRepaint && !showLua) display.clearDisplay();
+    if (!showColorTest && showViz && settings.vizStyle == 5) display.waitForScanCompletion();
+    if (!showColorTest && !animFullRepaint && !doomFullRepaint && !showLua)
+      display.clearDisplay();
 
-    if (showViz) {
+    if (showColorTest) {
+      for (int16_t y = 0; y < SCREEN_HEIGHT; ++y)
+        for (int16_t x = 0; x < SCREEN_WIDTH; ++x)
+          display.drawPixelRGB888(x, y, testR, testG, testB);
+    } else if (showViz) {
       displayVisualizer();
     } else if (showLua) {
 #if defined(LUA_EFFECTS_ENABLED)
@@ -540,7 +548,7 @@ void loop() {
     }
 
     // Notification banner draws over whatever screen is active.
-    if (notifyActive()) {
+    if (!showColorTest && notifyActive()) {
       drawNotifyOverlay();
     }
 

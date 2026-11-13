@@ -47,6 +47,30 @@ WebServer server(80);
 extern bool httpForceClock;
 extern bool httpForceAmbient;
 extern bool httpForceViz;
+extern bool displayAvailable;
+
+static bool webColorTestActive = false;
+static uint8_t webColorTestR = 0;
+static uint8_t webColorTestG = 0;
+static uint8_t webColorTestB = 0;
+static uint32_t webColorTestLastActionMs = 0;
+static const uint32_t WEB_COLOR_TEST_TIMEOUT_MS = 60000;
+
+static void stopWebColorTest() {
+ webColorTestActive = false;
+}
+
+bool webColorTestGetColor(uint8_t& r, uint8_t& g, uint8_t& b) {
+ if (!webColorTestActive) return false;
+ if (millis() - webColorTestLastActionMs >= WEB_COLOR_TEST_TIMEOUT_MS) {
+   stopWebColorTest();
+   return false;
+ }
+ r = webColorTestR;
+ g = webColorTestG;
+ b = webColorTestB;
+ return true;
+}
 
 // ========== Web Server Setup ==========
 static uint32_t runningFirmwareBytes = 0;
@@ -94,6 +118,7 @@ void setupWebServer() {
  server.on("/api/display/on", HTTP_GET, handleDisplayOn);
  server.on("/api/display/off", HTTP_GET, handleDisplayOff);
  server.on("/api/display/brightness", HTTP_GET, handleSetBrightness);
+ server.on("/api/display/color-test", HTTP_GET, handleDisplayColorTest);
  server.on("/api/mode/clock", HTTP_GET, handleModeClock);
  server.on("/api/mode/auto", HTTP_GET, handleModeAuto);
  server.on("/api/mode/ambient", HTTP_GET, handleModeAmbient);
@@ -269,9 +294,54 @@ void handleDisplayOn() {
 
 // GET /api/display/off - hold the panel off (suppresses scheduled brightness re-applies)
 void handleDisplayOff() {
+ stopWebColorTest();
  setDisplayForcedOff(true);
  server.sendHeader("Access-Control-Allow-Origin", "*");
  server.send(200, "application/json", "{\"success\":true,\"displayOn\":false}");
+}
+
+// GET /api/display/color-test?color=red|green|blue|white|yellow|cyan|magenta|stop
+void handleDisplayColorTest() {
+ server.sendHeader("Access-Control-Allow-Origin", "*");
+ if (!server.hasArg("color")) {
+   server.send(400, "application/json",
+               "{\"success\":false,\"error\":\"Missing color\"}");
+   return;
+ }
+
+ String name = server.arg("color");
+ if (name == "stop") {
+   stopWebColorTest();
+   server.send(200, "application/json", "{\"success\":true,\"active\":false}");
+   return;
+ }
+ uint8_t r = 0, g = 0, b = 0;
+ if (name == "red") { r = 255; }
+ else if (name == "green") { g = 255; }
+ else if (name == "blue") { b = 255; }
+ else if (name == "white") { r = g = b = 255; }
+ else if (name == "yellow") { r = g = 255; }
+ else if (name == "cyan") { g = b = 255; }
+ else if (name == "magenta") { r = b = 255; }
+ else {
+   server.send(400, "application/json",
+               "{\"success\":false,\"error\":\"Unsupported color\"}");
+   return;
+ }
+ if (!displayAvailable || isDisplayForcedOff() || isDisplayScheduledOff() ||
+     settings.displayBrightness == 0) {
+   server.send(409, "application/json",
+               "{\"success\":false,\"error\":\"Turn the display on before testing colors\"}");
+   return;
+ }
+
+ webColorTestR = r;
+ webColorTestG = g;
+ webColorTestB = b;
+ webColorTestActive = true;
+ webColorTestLastActionMs = millis();
+ server.send(200, "application/json",
+             "{\"success\":true,\"active\":true,\"timeoutSeconds\":60}");
 }
 
 // GET /api/display/brightness?value=0-100 - set brightness percentage
@@ -284,6 +354,7 @@ void handleSetBrightness() {
  int value = server.arg("value").toInt();
  if (value < 0) value = 0;
  if (value > 100) value = 100;
+ if (value == 0) stopWebColorTest();
  setDisplayBrightnessPercent((uint8_t)value);
  server.send(200, "application/json",
              "{\"success\":true,\"brightness\":" + String(value) + "}");
@@ -291,6 +362,7 @@ void handleSetBrightness() {
 
 // GET /api/mode/clock - force clock display even when the PC is online
 void handleModeClock() {
+ stopWebColorTest();
 #if defined(LUA_EFFECTS_ENABLED)
  luaEffectStop();
 #endif
@@ -303,6 +375,7 @@ void handleModeClock() {
 
 // GET /api/mode/auto - resume automatic mode (metrics when PC online, clock otherwise)
 void handleModeAuto() {
+ stopWebColorTest();
 #if defined(LUA_EFFECTS_ENABLED)
  luaEffectStop();
 #endif
@@ -315,6 +388,7 @@ void handleModeAuto() {
 
 // GET /api/mode/ambient - force the ambient screensaver regardless of schedule
 void handleModeAmbient() {
+ stopWebColorTest();
 #if defined(LUA_EFFECTS_ENABLED)
  luaEffectStop();
 #endif
@@ -328,6 +402,7 @@ void handleModeAmbient() {
 // GET /api/mode/viz - force the audio spectrum visualizer (needs the companion
 // streaming spectrum packets; falls back to the clock if the stream dies)
 void handleModeViz() {
+ stopWebColorTest();
 #if defined(LUA_EFFECTS_ENABLED)
  luaEffectStop();
 #endif

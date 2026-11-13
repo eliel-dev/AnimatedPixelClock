@@ -15,6 +15,7 @@
 #include "../clocks/clocks.h"
 #include "../config/config.h"
 #include "../display/display.h"
+#include "audio_motion_palette.h"
 #include <math.h>
 
 #define VIZ_BAR_W 3          // lit pixels per bar (1px gap -> 32 * 4 = 128)
@@ -90,54 +91,8 @@ static void drawMirroredLegacy() {
   display.drawFastHLine(0, centreY, SCREEN_WIDTH, vizRgb(35, 35, 55));
 }
 
-struct RgbColor888 {
-  uint8_t r, g, b;
-};
-
-static inline float clamp01f(float v) {
-  if (v <= 0.0f) return 0.0f;
-  return v >= 1.0f ? 1.0f : v;
-}
-
-static inline uint8_t clampToByte(int v) {
-  if (v <= 0) return 0;
-  return v >= 255 ? 255 : (uint8_t)v;
-}
-
-static RgbColor888 sampleAudioMotionColor(float t, uint8_t style) {
-  if (style >= 9) {
-    static const RgbColor888 rainbow[] = {{255,30,30},{255,116,0},{255,236,0},{0,255,80},{0,220,255},{0,80,255},{255,0,255}};
-    static const RgbColor888 sunset[] = {{255,72,40},{255,132,32},{255,188,48},{220,82,196},{98,54,255}};
-    static const RgbColor888 arctic[] = {{24,214,255},{0,168,255},{74,224,255},{138,255,214},{114,92,255}};
-    static const RgbColor888 neon[] = {{57,255,20},{0,255,180},{0,220,255},{120,86,255},{255,60,180}};
-    const RgbColor888* colors = rainbow; int count = 7;
-    if (style == 9) { colors = sunset; count = 5; }
-    else if (style == 10) { colors = arctic; count = 5; }
-    else if (style == 11) { colors = neon; count = 5; }
-    t = clamp01f(t); int i = 0;
-    float scaled = t * (count - 1);
-    i = (int)scaled;
-    if (i >= count - 1) i = count - 2;
-    float f = scaled - i;
-    return {(uint8_t)roundf(colors[i].r + (colors[i+1].r-colors[i].r)*f),
-            (uint8_t)roundf(colors[i].g + (colors[i+1].g-colors[i].g)*f),
-            (uint8_t)roundf(colors[i].b + (colors[i+1].b-colors[i].b)*f)};
-  }
-  // Match Mica's Bins128PreviewRenderer RainbowColorForColumn exactly.
-  const uint16_t column = (uint16_t)clampToByte((int)roundf(clamp01f(t) * 255.0f));
-  const uint8_t hue = (uint8_t)((column * 255u) / 255u);
-  const uint8_t region = hue / 43u;
-  const uint8_t remainder = (uint8_t)((hue - region * 43u) * 6u);
-  const uint8_t q = (uint8_t)(255u - remainder);
-  const uint8_t tt = remainder;
-  switch (region) {
-    case 0: return {255, tt, 0};
-    case 1: return {q, 255, 0};
-    case 2: return {0, 255, tt};
-    case 3: return {0, q, 255};
-    case 4: return {tt, 0, 255};
-    default: return {255, 0, q};
-  }
+static audio_motion_palette::RgbColor888 sampleAudioMotionColor(float t, uint8_t style) {
+  return audio_motion_palette::sample(t, style);
 }
 
 static inline uint8_t smoothBinsSample(const uint8_t *bins, int x) {
@@ -156,12 +111,12 @@ static void drawAudioMotionClone(bool stale, uint8_t style) {
                           ? SCREEN_WIDTH : VIZ_AUDIOMOTION_BANDS;
   const int16_t midY = SCREEN_HEIGHT / 2;   // 32
 
-  static bool rainbowLogged = false;
-  if (!rainbowLogged) {
-    rainbowLogged = true;
+  static bool paletteLogged = false;
+  if (!paletteLogged) {
+    paletteLogged = true;
     for (int testX : {0, 32, 64, 96, 127}) {
-      RgbColor888 c = sampleAudioMotionColor(testX / 127.0f, style);
-      Serial.printf("[VIZ] Rainbow x=%d -> RGB888(%d, %d, %d)\n", testX, c.r, c.g, c.b);
+      audio_motion_palette::RgbColor888 c = sampleAudioMotionColor(testX / 127.0f, style);
+      Serial.printf("[VIZ] AudioMotion x=%d -> RGB888(%d, %d, %d)\n", testX, c.r, c.g, c.b);
     }
   }
 
@@ -170,7 +125,8 @@ static void drawAudioMotionClone(bool stale, uint8_t style) {
     // Ceiling division: maps 1..255 → 1..31, 0 → 0 (matching Mica's amplitudeToHeight)
     const uint8_t halfHeight = (uint8_t)(((uint16_t)amplitude * 31u + 254u) / 255u);
     if (halfHeight == 0) continue;
-    const RgbColor888 color = sampleAudioMotionColor(x / (float)(columns - 1), style);
+    const audio_motion_palette::RgbColor888 color =
+        sampleAudioMotionColor(x / (float)(columns - 1), style);
     for (uint8_t offset = 0; offset < halfHeight; offset++) {
       display.drawPixelRGB888(x, midY - offset, color.r, color.g, color.b);
       display.drawPixelRGB888(x, midY + offset, color.r, color.g, color.b);

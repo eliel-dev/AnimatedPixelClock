@@ -56,7 +56,10 @@ void handleModeClock();
 void handleModeAuto();
 void handleModeAmbient();
 void handleModeViz();
+void handleDisplayColorTest();
 void handleSetClockStyle();
 void handleReboot();
+
+bool webColorTestGetColor(uint8_t& r, uint8_t& g, uint8_t& b);
 
 #endif // WEB_H

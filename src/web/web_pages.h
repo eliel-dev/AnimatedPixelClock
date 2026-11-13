@@ -815,6 +815,22 @@ static const char PAGE_HTML[] PROGMEM = R"PAGE(<!doctype html>
           </div>
 
           <div class="card">
+            <h2 class="card-title">RGB color test</h2>
+            <p class="field-hint">Temporarily fills the panel with a selected color. It does not save settings or change brightness, and stops after 60 seconds without input.</p>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button type="button" class="btn" data-color-test="red">Red</button>
+              <button type="button" class="btn" data-color-test="green">Green</button>
+              <button type="button" class="btn" data-color-test="blue">Blue</button>
+              <button type="button" class="btn" data-color-test="white">White</button>
+              <button type="button" class="btn" data-color-test="yellow">Yellow</button>
+              <button type="button" class="btn" data-color-test="cyan">Cyan</button>
+              <button type="button" class="btn" data-color-test="magenta">Magenta</button>
+              <button type="button" class="btn" id="colorTestStop">Stop test</button>
+            </div>
+            <p class="field-hint" id="colorTestStatus" aria-live="polite">Select a color to begin.</p>
+          </div>
+
+          <div class="card">
             <h2 class="card-title">Modo noturno</h2>
             <label class="check-row standalone">
               <input type="checkbox" name="enableScheduledDimming" id="enableScheduledDimming" %CHK_ENABLESCHEDULEDDIMMING%>
@@ -1332,6 +1348,25 @@ fetch(path).then(function (r) { return r.json(); })
 .then(function () { var s = $('#ambRunStatus'); if (s) s.textContent = okMsg; })
 .catch(function () { var s = $('#ambRunStatus'); if (s) s.textContent = 'Request failed - is the device reachable?'; });
 }
+var colorTestStatus = $('#colorTestStatus');
+function colorTestCall(color) {
+if (colorTestStatus) colorTestStatus.textContent = 'Sending color test...';
+fetch('/api/display/color-test?color=' + encodeURIComponent(color)).then(function (r) {
+return r.json().then(function (d) {
+if (!r.ok || !d.success) throw new Error(d.error || 'The device rejected the color test');
+return d;
+});
+}).then(function (d) {
+if (colorTestStatus) colorTestStatus.textContent = color === 'stop' ? 'Test stopped; the current display mode has resumed.' : 'Showing ' + color + '. Stop the test or wait 60 seconds for the display to resume.';
+}).catch(function (e) {
+if (colorTestStatus) colorTestStatus.textContent = e.message || 'Color test request failed.';
+});
+}
+$$('[data-color-test]').forEach(function (button) {
+button.addEventListener('click', function () { colorTestCall(button.dataset.colorTest); });
+});
+var colorTestStop = $('#colorTestStop');
+if (colorTestStop) colorTestStop.addEventListener('click', function () { colorTestCall('stop'); });
 var ambStart = $('#ambStartBtn');
 if (ambStart) ambStart.addEventListener('click', function () { ambCall('/api/mode/ambient', 'Ambient running. Stop returns to the normal display.'); });
 var ambStop = $('#ambStopBtn');
