@@ -25,10 +25,12 @@ No WSL:
 
 ```bash
 cd ~/AnimatedPixelClock
-./tools/twin-wsl2/run.sh
+./tools/twin-wsl2/run-with-companion.sh
 ```
 
 O script compila `matrix-s3-wroom-twin`, um perfil exclusivo do simulador que liga `Serial` à USB Serial/JTAG (o perfil físico `matrix-s3-wroom` continua usando UART0/CH343), inicializa/atualiza a flash virtual preservando NVS e LittleFS, e executa `esp32sim --board hub75-panel` com 16 MB de flash e 8 MB de PSRAM. Na primeira execução ele clona/builda TWIN, baixa a ROM oficial ESP32-S3 se necessário e provisiona a rede **virtual** `PixelClock-TWIN` pelo Improv-Serial. Essa rede não é a rede Wi-Fi doméstica; não coloque nela credenciais reais. O Companion chega à API e ao listener UDP por encaminhamento local do TWIN.
+
+Esse launcher pede autenticação `sudo` uma vez, inicia a ponte HTTP na porta 80 e então inicia o simulador. Ao encerrar o launcher, ele também para a ponte.
 
 Abra no navegador do Windows:
 
@@ -38,14 +40,16 @@ Abra no navegador do Windows:
 Para apagar somente a flash virtual e reprovisionar um chip novo:
 
 ```bash
-./tools/twin-wsl2/run.sh --fresh
+./tools/twin-wsl2/run-with-companion.sh --fresh
 ```
 
 O script pede confirmação antes de apagar `~/.local/share/animatedpixelclock-twin/state/flash.bin`.
 
+Para executar somente o simulador, sem a ponte HTTP, use `./tools/twin-wsl2/run.sh`.
+
 ## 3. Conectar o Companion v4 Windows sem alterar o `.exe`
 
-O TWIN encaminha UDP `127.0.0.1:4210` para a porta 4210 do firmware e TCP `127.0.0.1:8080` para a API HTTP guest:80. O Companion usa HTTP na porta 80 sem opção de porta; por isso, em outro terminal WSL, inicie a ponte loopback:
+O TWIN encaminha UDP `127.0.0.1:4210` para a porta 4210 do firmware e TCP `127.0.0.1:8080` para a API HTTP guest:80. O launcher `run-with-companion.sh` inicia a ponte loopback que o Companion precisa, pois ele usa HTTP na porta 80 sem opção de porta. Se executar apenas `run.sh`, inicie a ponte manualmente em outro terminal WSL:
 
 ```bash
 sudo python3 ~/AnimatedPixelClock/tools/twin-wsl2/http_bridge.py
